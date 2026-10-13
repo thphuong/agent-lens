@@ -7,26 +7,27 @@ an agent works, finished calls glow briefly as chips, and a timeline lets
 you scrub back through the session or replay it.
 
 ```text
-                                        ╭──────────────────╮
-                                        │ main             │
-                                        │ ○ idle           │
-                                        │                  │
-                                        ╰─────────┬────────╯
-         ╭────────────────────────────────────────┼───────────────────────────────────────╮
-         │                                        │                                       │
- ╭───────┴───────╮   ╭╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╭─────────┴────────╮╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮   ╭───────┴───────╮
- │ scan again    │   ╎                  │ fake-review      │                  ╎   │ pair          │
- │ ✓ done · expl │   ╎                  │ ✗ failed · workf │                  ╎   │ ✓ done · team │
- │               │   ╎                  │                  │                  ╎   │               │
- ╰───────┬───────╯   ╎                  ╰─────────┬────────╯                  ╎   ╰───────────────╯
-         │           ╎                            │                           ╎
-         │           ╎        ╭───────────────────┼──────────────────╮        ╎
-         │           ╎        │                   │                  │        ╎
- ╭───────┴───────╮   ╎╭───────┴───────╮  ╭────────┴───────╮  ╭───────┴───────╮╎
- │ nested look   │   ╎│ lens 0        │  │ lens 1         │  │ lens 2        │╎
- │ ✓ done · help │   ╎│ ✓ done · revi │  │ ✓ done · revie │  │ ✗ failed · re │╎
- ╰───────────────╯   ╎╰───────────────╯  ╰────────────────╯  ╰───────────────╯╎
-                     ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+ ╭──────────────────╮
+ │ main             │
+ │ ○ idle           │
+ ╰─────────┬────────╯
+           │
+           ├────────────────────┬─────────────────────────────────────────────────────────╮
+           │         ╭╌╌╌╌╌╌╌╌╌╌│╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮         │
+  ╭────────┴───────╮ ╎╭─────────┴────────╮                                      ╎ ╭───────┴───────╮
+  │ scan again     │ ╎│ fake-review      │                                      ╎ │ pair          │
+  │ ✓ done · explo │ ╎│ ✗ failed · workf │                                      ╎ │ ✓ done · team │
+  ╰────────┬───────╯ ╎│                  │                                      ╎ ╰───────────────╯
+           │         ╎╰─────────┬────────╯                                      ╎
+           │         ╎          │                                               ╎
+           │         ╎          ├───────────────────┬──────────────────╮        ╎
+  ╭────────┴───────╮ ╎          │                   │                  │        ╎
+  │ nested look    │ ╎ ╭────────┴───────╮  ╭────────┴───────╮  ╭───────┴───────╮╎
+  │ ✓ done · helpe │ ╎ │ lens 0         │  │ lens 1         │  │ lens 2        │╎
+  ╰────────────────╯ ╎ │ ✓ done · revie │  │ ✓ done · revie │  │ ✗ failed · re │╎
+                     ╎ ╰────────────────╯  ╰────────────────╯  ╰───────────────╯╎
+                     ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+
 
 ╭─ timeline ───────────────────────────────────────────────────────────────────────────────────────╮
 │  ┊     ❋     ❋   ✗              ❋           ❋           ❋         ✗ ❋          ❋               ┊ │
@@ -36,7 +37,7 @@ you scrub back through the session or replay it.
 │──────────────────────────────────────────────────────────────────────────────────────────────────│
 │ ◆ /clear                                                                                         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- ◉ session-viz  ● LIVE  6 agents · 9 tools  ⌖ overview
+ ◉ session-viz  ● LIVE  6 agents · 9 tools · 840 tok  ⌖ overview  ↺ layout
 ```
 
 The capture above is drawn from the synthetic session in the test
@@ -74,7 +75,7 @@ back to the prompt, so the graph uses `x` where you might expect Escape.
 | `s` | toggle gap compression |
 | `o` | overview: fit the whole graph |
 | `f` | follow the latest activity on / off |
-| `r` | relayout, clearing dragged positions |
+| `r` | reset the layout, clearing dragged positions |
 | `c` | centre the selection |
 | `i` `?` | session info / help |
 | `Tab` arrows | move the selection |
@@ -90,7 +91,8 @@ With the mouse:
 - Scroll the wheel over the graph to zoom about the pointer, or over the
   details to scroll them.
 - Click or drag along the timeline to seek.
-- Click `⌖ follow` / `⌖ manual` on the status bar to toggle follow.
+- Click `⌖ follow` / `⌖ manual` on the status bar to toggle follow, and
+  `↺ layout` to put moved cards back where they first appeared.
 
 Panning or zooming by hand switches the camera to manual; `f` or the
 status-bar badge returns it to following the latest activity.

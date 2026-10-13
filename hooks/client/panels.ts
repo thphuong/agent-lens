@@ -16,7 +16,7 @@ export const KEYMAP: [string, string][] = [
   ['s', 'gap compression'],
   ['o', 'overview'],
   ['f', 'follow on / off'],
-  ['r', 'relayout'],
+  ['r', 'reset the layout'],
   ['c', 'centre'],
   ['i  ?', 'info / help'],
   ['Tab  arrows', 'select'],

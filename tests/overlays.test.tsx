@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
+import { formatTokens } from '../hooks/client/cards'
 import { chipsFor } from '../hooks/client/chips'
 import { Grid } from '../hooks/client/grid'
 import { needsMinimap } from '../hooks/client/minimap'
@@ -72,6 +73,16 @@ describe('status bar', () => {
       drawStatus(g, 0, { ...props.view, timeline: { ...props.view.timeline, transport: transport as Transport } }, { camera: 'follow' })
       expect(g.ch.join('')).toContain(text)
     }
+  })
+
+  test('the total counts each agent’s tokens once, not again through its group', () => {
+    const props = referenceProps()
+    const own = props.view.agents.filter(a => a.kind !== 'group').reduce((s, a) => s + a.tokens, 0)
+    const g = new Grid(120, 1)
+    const buttons = drawStatus(g, 0, props.view, { camera: 'follow' })
+    const line = g.ch.join('')
+    expect(line).toContain(`· ${formatTokens(own)} tok`)
+    expect(line.slice(buttons.reset.x, buttons.reset.x + buttons.reset.w)).toBe('↺ layout')
   })
 })
 

@@ -21,7 +21,7 @@ import { drawPanel } from './timeline-panel'
 /** A tree must serialize under 100,000 characters, its text included: a larger region draws only this much. */
 const MAX_CELLS = 40_000
 const MAX_COLUMNS = 400
-const KEY_HINT = 'click graph for keys'
+const KEY_HINT = 'click for keys'
 
 type S = { live: Live; frame: number }
 
@@ -95,6 +95,7 @@ export const drawFrame = (live: Live, r: Regions, w: number, h: number): Grid =>
   if (r.panel.h > 0) drawPanel(g, r.panel, props.view.timeline, r.isCompact)
   const status = drawStatus(g, r.statusY, props.view, { camera: cameraMode(live), hint: live.hasKeys ? undefined : KEY_HINT, isDotLit: live.isDotLit })
   live.cameraBadge = status.camera
+  live.resetBadge = status.reset
   return g
 }
 

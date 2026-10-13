@@ -35,8 +35,9 @@ export type Live = {
   regions: Regions
   /** Each card's rect on the canvas as last drawn, for hit-testing. */
   screen: Map<string, Rect>
-  /** Where the status bar drew the camera mode, as last drawn. */
+  /** Where the status bar drew its camera mode and layout reset buttons, as last drawn. */
   cameraBadge?: Rect
+  resetBadge?: Rect
   drag?: Drag
   hover?: string
   outbox: Outbox

@@ -100,6 +100,13 @@ describe('pointer', () => {
     expect(sent(live)).toEqual([{ type: 'camera', mode: 'manual' }])
   })
 
+  test('clicking the layout button lays the cards out afresh', () => {
+    const live = liveFor()
+    live.resetBadge = { x: 52, y: live.regions.statusY, w: 8, h: 1 }
+    onPointer(live, { type: 'down', x: 55, y: live.regions.statusY, button: 'left' })
+    expect(sent(live)).toEqual([{ type: 'relayout' }])
+  })
+
   test('a bare move hovers a card and leaving clears it', () => {
     const live = liveFor()
     onPointer(live, { type: 'move', x: 20, y: 8 })
@@ -223,17 +230,18 @@ describe('in the pane', () => {
     await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
     for (let i = 0; i < 20; i++) await $.tool.call({ tool: 'Read', command: 'x' } as never)
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-    await ui.resize({ columns: 87, rows: 32 })
+    // Wide enough for the status bar to keep its key hint.
+    await ui.resize({ columns: 120, rows: 32 })
     return ui
   }
 
   test('a key reaches the hooks module and the hint goes away', async ($, on) => {
     const ui = await start($, on)
-    expect(await ui.find({ type: 'Text', text: /click graph for keys/, in: 'graph' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /click for keys/, in: 'graph' })).toBeDefined()
     await ui.key({ key: 'f', in: 'graph' })
     await ui.advance(50)
     expect(await ui.find({ type: 'Text', text: /⌖ manual/, in: 'graph' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /click graph for keys/, in: 'graph' })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: /click for keys/, in: 'graph' })).toBeUndefined()
     await ui.key({ key: '?', in: 'graph' })
     await ui.advance(50)
     expect(await ui.find({ type: 'Text', text: /follow on \/ off/, in: 'graph' })).toBeDefined()

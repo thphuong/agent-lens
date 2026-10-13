@@ -1,6 +1,7 @@
 // Pointer input: a card clicked is selected, a card dragged is pinned where
 // it lands; the background pans; the timeline track seeks; the camera badge on
-// the status bar toggles follow; a bare move hovers.
+// the status bar toggles follow and its layout button lays the cards out
+// afresh; a bare move hovers.
 
 import type { ClientPointerEvent } from 'claude-code'
 
@@ -21,6 +22,7 @@ const press = (live: Live, e: ClientPointerEvent): void => {
   const r = live.regions
   if (e.y === r.statusY) {
     if (within(e.x, e.y, live.cameraBadge)) toggleFollow(live)
+    else if (within(e.x, e.y, live.resetBadge)) live.outbox.push({ type: 'relayout' })
     return
   }
   if (r.panel.h > 0 && within(e.x, e.y, trackOf(r.panel, r.isCompact))) {
