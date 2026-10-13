@@ -81,3 +81,13 @@ describe('camera', () => {
     expect(v.x + 80 / v.z / 2).toBe(100)
   })
 })
+
+test('a running card keeps pulsing and its ants keep moving while paused', () => {
+  const p = new Presentation()
+  const pulse = p.pulse()
+  const ants = p.antPhase()
+  p.advance(240, false)
+  expect(p.pulse()).not.toBe(pulse)
+  expect(p.antPhase()).toBeGreaterThan(ants)
+  expect(p.watchMs).toBe(0)
+})
