@@ -1,0 +1,7 @@
+// Interface state that must outlive one Client instance: the selection, the
+// open overlay, the camera mode and the cards the person dragged. register.tsx
+// keeps it in `$.state`, so a remount or a hot reload restores it.
+
+import type { UiState } from '../types'
+
+export const EMPTY_UI: UiState = { overlay: 'none', detailFollow: false, camera: 'follow', pinned: {}, relayoutSeq: 0 }

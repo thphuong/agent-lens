@@ -1,15 +1,32 @@
+import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
+import type { Props, UiState } from '../types'
+import { FRAME_MS } from './frame'
 import { agentSpawned, backfill, promptSubmitted, toolEnded, toolStarted, turnCompleted, turnStarted } from './ingest'
+import { applyIntents, parseIntents } from './intents'
 import { MAIN, type NewFact } from './model/facts'
+import { derive } from './model/fold'
+import { Timeline } from './model/timeline'
 import { FactLog, type LogPort } from './persist'
+import { buildProps, detailAgent } from './props'
+import { cellText } from './text'
+import { EMPTY_UI } from './uistate'
 
 const PANE = 'viz'
 const META = { plugin: 'session-viz', key: 'logMeta' } as const
 const CHUNK = { plugin: 'session-viz', key: 'logChunk' } as const
+const uiAtom = atom({ plugin: 'session-viz', key: 'ui' } as const, EMPTY_UI, { shape: 'ui-1' })
 
-// Module state starts over on a hot reload; the log reloads itself from `$.state`.
+// Module state starts over on a hot reload: the log reloads itself from
+// `$.state`, and the timeline returns to live.
 const log = new FactLog()
+const timeline = new Timeline()
+/** Opening prompts fetched for details, by agent id, sanitised. */
+const prompts = new Map<string, string>()
+const fetching = new Set<string>()
+let stopReplay: (() => void) | undefined
+const PROMPT_CHARS = 600
 
 const portFor = ($: EngineInterface): LogPort => ({
   readMeta: async () => (await $.state.get(META)).value,
@@ -42,11 +59,20 @@ const fill = async ($: EngineInterface) => {
     !log.facts.some(f => f.kind === 'prompt'),
   )
   log.append(portFor($), facts)
+  changed($)
+}
+
+/** The log changed: the timeline follows it, and the pane redraws. */
+const changed = ($: EngineInterface) => {
+  timeline.setFacts(log.facts)
   $.ui.invalidate('ui.render')
 }
 
 const restart = async ($: EngineInterface, sessionId: string) => {
   log.reset(portFor($), sessionId)
+  prompts.clear()
+  timeline.goLive()
+  await update($, uiAtom, () => EMPTY_UI)
   log.append(portFor($), [{ kind: 'agent', agent: MAIN, agentKind: 'main' }])
   await fill($)
 }
@@ -71,7 +97,47 @@ const reopen = async ($: EngineInterface, ended: string) => {
 const append = async ($: EngineInterface, facts: NewFact[]) => {
   const sessionId = await $.session.id()
   if (sessionId !== log.sessionId) await restart($, sessionId)
-  if (log.append(portFor($), facts).length > 0) $.ui.invalidate('ui.render')
+  if (log.append(portFor($), facts).length > 0) changed($)
+}
+
+/** Steps replay on a timer while playing; stops itself once replay ends. */
+const syncReplay = ($: EngineInterface) => {
+  if (timeline.mode !== 'playing') {
+    stopReplay?.()
+    stopReplay = undefined
+    return
+  }
+  if (stopReplay) return
+  let last = Date.now()
+  const timer = $.clock.every(FRAME_MS, () => {
+    const now = Date.now()
+    if (timeline.tick(now - last)) $.ui.invalidate('ui.render')
+    last = now
+    if (timeline.mode !== 'playing') syncReplay($)
+  })
+  stopReplay = () => timer.cancel()
+}
+
+/** Fetches an agent's opening prompt for its details, once; redraws when it lands. */
+const fetchPrompt = async ($: EngineInterface, agent: string) => {
+  if (agent === MAIN || prompts.has(agent) || fetching.has(agent)) return
+  fetching.add(agent)
+  try {
+    const rows = await $.session.messages({ agentId: agent })
+    const first = 'deny' in rows ? undefined : rows.find(r => r.role === 'user' && r.text.trim() !== '')
+    const line = first?.text.split('\n').find(l => l.trim() !== '')
+    prompts.set(agent, line === undefined ? '' : cellText(line.trim(), PROMPT_CHARS))
+    $.ui.invalidate('ui.render')
+  } finally {
+    fetching.delete(agent)
+  }
+}
+
+/** The props for the current timeline and UI state, starting a details prompt fetch when one is missing. */
+const propsFor = ($: EngineInterface, ui: UiState): Props => {
+  const agent = detailAgent(ui, derive(timeline.model()))
+  if (agent !== undefined && !prompts.has(agent)) void fetchPrompt($, agent).catch(err => warn($, 'details', err))
+  return buildProps({ timeline, ui, now: Date.now(), prompts })
 }
 
 /** Runs a translator and queues its facts; a translator that throws is logged once per kind. */
@@ -136,13 +202,26 @@ export const register: Register = on => {
     return { text: opened.isPlaced ? 'Session graph opened.' : 'Session graph is waiting for room.' }
   })
 
+  // The Client posts one batch of intents per frame; each is validated, all
+  // apply in order, and the answer is the props they lead to.
+  on('ui.message', { requestId: PANE }, async ($, e) => {
+    const agents = new Set(derive(timeline.model()).map(a => a.id))
+    const intents = parseIntents(e.data, agents)
+    if (intents.length === 0) return {}
+    const before = await read($, uiAtom)
+    const { ui, close } = applyIntents(intents, timeline, before)
+    if (ui !== before) await update($, uiAtom, () => ui)
+    syncReplay($)
+    if (close) await $.ui.close({ id: PANE })
+    return { props: propsFor($, ui) }
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Text } = $.ui.resolve(e)
     if (e.surface !== 'terminal') return <Text>The session graph draws on the terminal only.</Text>
     const { Client } = $.ui.resolve(e)
     const bodyRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 24
-    return (
-      <Client key="graph" module="./client/graph.tsx" width="100%" height={bodyRows} props={{ facts: log.facts.length }} />
-    )
+    const props = propsFor($, await read($, uiAtom))
+    return <Client key="graph" module="./client/graph.tsx" width="100%" height={bodyRows} props={props} />
   })
 }

@@ -1,12 +1,13 @@
 // Groups an agent's consecutive calls of one tool into runs, so a burst of
 // reads shows as one chip with a count.
 
+import type { RunState } from '../../types'
 import { callOutcome, type Call, type SessionModel } from './fold'
 
 /** Dated calls further apart than this start a new run; it matches the chip TTL so a faded chip never revives. */
 export const RUN_GAP_MS = 2500
 
-export type RunState = 'run' | 'ok' | 'err' | 'unknown'
+export type { RunState }
 
 export type Run = {
   key: string

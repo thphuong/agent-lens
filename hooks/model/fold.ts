@@ -4,6 +4,7 @@
 // the one with the higher seq wins. The model is mutated in place, so a full
 // refold on every seek stays cheap.
 
+import type { DisplayStatus } from '../../types'
 import { MAIN, type AgentKind, type EndStatus, type Fact, type LiveStatus, type Outcome } from './facts'
 
 /** A value with the seq of the fact that set it, so competing facts resolve by seq. */
@@ -43,6 +44,8 @@ export type Call = {
   end?: number
   outcome?: Outcome
 }
+
+export type { DisplayStatus }
 
 export type Prompt = { seq: number; at?: number; line: string }
 
@@ -146,7 +149,6 @@ export const foldAll = (facts: readonly Fact[], upTo = facts.length): SessionMod
   return m
 }
 
-export type DisplayStatus = 'running' | 'idle' | 'done' | 'failed' | 'stopped'
 
 /**
  * A call's settled outcome, or undefined while it is in flight. A call left
