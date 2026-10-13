@@ -252,6 +252,9 @@ export const derive = (m: SessionModel): DerivedAgent[] => {
 
   // A group is running until it has children and all of them are settled;
   // then failed if any child failed, else done. Nested groups roll up first.
+  // A group with no children is running only while main is: its agents may
+  // not have spawned yet, but once main is idle they are not coming (agents
+  // a resumed history lacks, or remote ones with no local loop).
   const groups = [...out.values()].filter(d => d.kind === 'group')
   const depth = (d: DerivedAgent): number => {
     let k = 0
@@ -261,7 +264,8 @@ export const derive = (m: SessionModel): DerivedAgent[] => {
   groups.sort((x, y) => depth(y) - depth(x))
   for (const g of groups) {
     const kids = [...out.values()].filter(d => d.parent === g.id)
-    if (kids.length === 0 || kids.some(k => !TERMINAL.has(k.status))) g.status = 'running'
+    if (kids.length === 0) g.status = out.get(MAIN)?.status === 'running' ? 'running' : 'idle'
+    else if (kids.some(k => !TERMINAL.has(k.status))) g.status = 'running'
     else g.status = kids.some(k => k.status === 'failed') ? 'failed' : 'done'
     g.tools = kids.reduce((s, k) => s + k.tools, g.tools)
     g.tokens = kids.reduce((s, k) => s + k.tokens, g.tokens)

@@ -72,8 +72,9 @@ describe('fold', () => {
 })
 
 describe('groups', () => {
-  test('an empty group is running; a late child reverts its done', () => {
+  test('an empty group runs while main does; a late child reverts its done', () => {
     const s = new Session()
+    s.start()
     s.call(undefined, 'Workflow', false, { runId: 'r', workflowName: 'w' })
     expect(byId(s.numbered()).get('wf:r')?.status).toBe('running')
     const a = s.spawn({ workflow: { runId: 'r', agentIndex: 0 } })
@@ -81,6 +82,14 @@ describe('groups', () => {
     expect(byId(s.numbered()).get('wf:r')?.status).toBe('done')
     s.spawn({ workflow: { runId: 'r', agentIndex: 1 } })
     expect(byId(s.numbered()).get('wf:r')?.status).toBe('running')
+  })
+
+  test('an empty group is idle once main is, as after a resume without its agents', () => {
+    const s = new Session()
+    s.start()
+    s.call(undefined, 'Workflow', false, { runId: 'r', workflowName: 'w' })
+    s.finish(undefined)
+    expect(byId(s.numbered()).get('wf:r')?.status).toBe('idle')
   })
 })
 
