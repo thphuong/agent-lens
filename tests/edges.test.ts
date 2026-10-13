@@ -60,3 +60,14 @@ test('an off-centre parent meets the bar from above', () => {
   const bar = rows.find((r, i) => i > 6 && r.includes('╭'))!.trim()
   expect(bar).toMatch(/^╭─+┴─+╮$/)
 })
+
+test('a child dragged level with its parent stays connected, entered from below', () => {
+  const agents = [agent('main', undefined, 'main'), agent('a', 'main')]
+  const pos = { main: { x: 0, y: 0 }, a: { x: 40, y: 1 } }
+  const g = new Grid(80, 12)
+  drawScene(g, agents, pos, { x: 0, y: 0, z: 1 })
+  const rows = Array.from({ length: g.h }, (_, y) => rowText(g, y))
+  // Main's bottom (row 6) and the child's bottom (row 6) both carry a junction.
+  expect((rows[6]!.match(/┬/g) ?? []).length).toBe(2)
+  expect(rows[7]!.trim()).toMatch(/^╰─+╯$/)
+})

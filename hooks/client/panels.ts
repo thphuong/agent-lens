@@ -14,14 +14,15 @@ export const KEYMAP: [string, string][] = [
   ['[  ]', 'previous / next prompt'],
   ['g  End', 'go live'],
   ['s', 'gap compression'],
-  ['o  f', 'overview / follow'],
+  ['o', 'overview'],
+  ['f', 'follow on / off'],
   ['r', 'relayout'],
   ['c', 'centre'],
   ['i  ?', 'info / help'],
   ['Tab  arrows', 'select'],
   ['h j k l', 'pan (j/k scroll details)'],
   ['+  -  0', 'zoom'],
-  ['x', 'close overlay / clear'],
+  ['x', 'close overlay / details'],
   ['q', 'close the pane'],
 ]
 
@@ -62,7 +63,7 @@ const panel = (g: Grid, rect: Rect, title: string) => {
 
 /** Draws the details in `rect`, scrolled down `scroll` lines; answers the largest useful scroll. */
 export const drawDetails = (g: Grid, rect: Rect, d: Details, scroll: number, now = Date.now()): number => {
-  panel(g, rect, 'details')
+  panel(g, rect, 'details · x closes')
   const lines = detailLines(d, now)
   const room = rect.h - 2
   const maxScroll = Math.max(0, lines.length - room)

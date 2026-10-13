@@ -5,7 +5,7 @@ import type { Props, UiState } from '../types'
 import { FaultGate } from './fault-gate'
 import { FRAME_MS } from './frame'
 import { agentSpawned, backfill, promptSubmitted, toolEnded, toolStarted, turnCompleted, turnStarted } from './ingest'
-import { applyIntents, parseIntents } from './intents'
+import { applyIntents, parseIntents, wheelTick } from './intents'
 import { MAIN, type NewFact } from './model/facts'
 import { derive } from './model/fold'
 import { Timeline } from './model/timeline'
@@ -225,6 +225,15 @@ export const register: Register = on => {
     syncReplay($)
     if (close) await $.ui.close({ id: PANE })
     return { props: propsFor($, ui) }
+  })
+
+  // The wheel over the graph zooms it rather than scrolling the pane: the
+  // tick goes to the Client through its props. Scroll keys pass through.
+  on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    const ui = wheelTick(await read($, uiAtom), e)
+    if (!ui) return next(e)
+    await update($, uiAtom, () => ui)
+    return {}
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

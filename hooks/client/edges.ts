@@ -29,6 +29,16 @@ export const elbow = (from: Pt, to: Pt, barY: number): Pt[] => {
   return [from, { x: from.x, y: mid }, { x: to.x, y: mid }, to]
 }
 
+/**
+ * The path to a child that is not below its parent (dragged up or level):
+ * out of the parent's bottom, along the row under both cards, and up into
+ * the child's bottom border.
+ */
+export const hook = (from: Pt, childBottom: Pt): Pt[] => {
+  const y = Math.max(from.y, childBottom.y) + 1
+  return [from, { x: from.x, y }, { x: childBottom.x, y }, childBottom]
+}
+
 export type StrokeStyle = {
   /** Which edges share a parent: crossings within a family are junctions, across families bridges. */
   family: readonly number[]

@@ -2,10 +2,14 @@
 // so anything outside the intent vocabulary, or naming an agent that does not
 // exist, is dropped.
 
+import type { UiScrollInput } from 'claude-code'
+
 import type { CameraMode, Intent, Overlay, UiState } from '../types'
 import type { Timeline } from './model/timeline'
 
 export const MAX_INTENTS = 32
+/** Wheel ticks summed in flight are capped at this many rows either way. */
+export const MAX_WHEEL = 3
 export const SPEEDS = [1, 2, 4, 8, 16, 32]
 /** Pinned positions are kept within this many cells of the origin. */
 export const WORLD_LIMIT = 100_000
@@ -109,4 +113,15 @@ export const applyIntents = (intents: readonly Intent[], timeline: Timeline, ui:
     }
   }
   return { ui: next, close }
+}
+
+/**
+ * The UI state recording a person's wheel tick over the pane, for the Client
+ * to zoom by; undefined for a scroll key or a plugin's scroll, which move the
+ * window as usual.
+ */
+export const wheelTick = (ui: UiState, e: Pick<UiScrollInput, 'by' | 'origin' | 'pointer'>): UiState | undefined => {
+  if (!e.pointer || e.origin.kind !== 'person' || e.by === 0) return undefined
+  const by = Math.max(-MAX_WHEEL, Math.min(MAX_WHEEL, Math.round(e.by)))
+  return { ...ui, wheel: { seq: (ui.wheel?.seq ?? 0) + 1, by, column: e.pointer.column, row: e.pointer.row } }
 }

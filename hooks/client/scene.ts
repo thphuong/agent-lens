@@ -3,7 +3,7 @@
 
 import type { ViewAgent } from '../../types'
 import type { Chip } from './chips'
-import { elbow, strokes } from './edges'
+import { elbow, hook, strokes } from './edges'
 import { Grid } from './grid'
 import { drawCard } from './cards'
 import { frameOf, rectOf, type Positions, type Rect } from './layout'
@@ -54,7 +54,7 @@ export const drawScene = (g: Grid, agents: readonly ViewAgent[], positions: Posi
     if (!p || !c) return
     const from = { x: p.x + Math.floor(p.w / 2), y: p.y + p.h - 1 }
     const to = { x: c.x + Math.floor(c.w / 2), y: c.y }
-    if (to.y <= from.y + 1) return
+    if (to.y <= from.y + 1) return g.route(hook(from, { x: to.x, y: c.y + c.h - 1 }), i)
     const barY = from.y + Math.max(1, Math.floor((to.y - from.y) / 2))
     g.route(elbow(from, to, barY), i)
   })
