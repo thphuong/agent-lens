@@ -129,4 +129,18 @@ export class Grid {
       }
     }
   }
+
+  /** Copies `src` into this grid with its top-left at (dx, dy). */
+  blit(src: Grid, dx: number, dy: number): void {
+    for (let y = 0; y < src.h; y++) {
+      const ty = dy + y
+      if (ty < 0 || ty >= this.h) continue
+      for (let x = 0; x < src.w; x++) {
+        const tx = dx + x
+        if (tx < 0 || tx >= this.w) continue
+        this.ch[ty * this.w + tx] = src.ch[y * src.w + x]!
+        this.fg[ty * this.w + tx] = src.fg[y * src.w + x]!
+      }
+    }
+  }
 }

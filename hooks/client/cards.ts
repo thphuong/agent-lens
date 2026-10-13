@@ -3,6 +3,7 @@
 // cards the model. Too small to read, a card becomes a solid status block.
 
 import type { ViewAgent } from '../../types'
+import type { Chip } from './chips'
 import { borderJoins, drawJoins } from './edges'
 import type { Grid } from './grid'
 import { MUTED, STATUS_COLOR, STATUS_GLYPH, TEXT } from './palette'
@@ -16,6 +17,8 @@ export const formatTokens = (n: number): string =>
 export type CardLook = {
   /** Border colour override (hover, selection, pulse). */
   border?: string
+  /** Chips shown on the card's tool row, newest first. */
+  chips?: readonly Chip[]
 }
 
 /** Draws a card at screen cell (x, y) sized w×h; edges already routed into the grid join its borders. */
@@ -40,6 +43,18 @@ export const drawCard = (g: Grid, a: ViewAgent, x: number, y: number, w: number,
   if (a.kind !== 'sub' && a.model) rows.push([a.model, MUTED])
   for (let r = 0; r < rows.length && r < h - 2; r++) {
     const [s, color] = rows[r]!
-    if (s) g.text(x + 2, y + 1 + r, s, color, inner)
+    if (r === 2 && look.chips?.length) drawChips(g, x + 2, y + 1 + r, look.chips, inner)
+    else if (s) g.text(x + 2, y + 1 + r, s, color, inner)
+  }
+}
+
+/** Chips side by side on one row, as many as fit. */
+const drawChips = (g: Grid, x: number, y: number, chips: readonly Chip[], cells: number) => {
+  let used = 0
+  for (const c of chips) {
+    const text = `${c.glyph} ${c.label}`
+    if (used > 0 && used + 2 + text.length > cells) break
+    if (used > 0) used += 2
+    used += g.text(x + used, y, text, c.color, cells - used)
   }
 }

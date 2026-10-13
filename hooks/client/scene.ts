@@ -2,6 +2,7 @@
 // edges, then cards on top.
 
 import type { ViewAgent } from '../../types'
+import type { Chip } from './chips'
 import { elbow, strokes } from './edges'
 import { Grid } from './grid'
 import { drawCard } from './cards'
@@ -17,6 +18,8 @@ export type SceneLook = {
   ants?: { phase: number; agents: ReadonlySet<string> }
   /** Per-agent border colour overrides (pulse). */
   borders?: ReadonlyMap<string, string>
+  /** Each agent's chips. */
+  chips?: (agent: ViewAgent) => Chip[]
 }
 
 export const toScreen = (cam: Camera, r: Rect): Rect => {
@@ -71,7 +74,7 @@ export const drawScene = (g: Grid, agents: readonly ViewAgent[], positions: Posi
     const s = screen.get(a.id)
     if (!s || s.x >= g.w || s.y >= g.h || s.x + s.w <= 0 || s.y + s.h <= 0) continue
     const border = a.id === look.hover ? HOVER : a.id === look.selected ? GREY[4] : look.borders?.get(a.id)
-    drawCard(g, a, s.x, s.y, s.w, s.h, { border })
+    drawCard(g, a, s.x, s.y, s.w, s.h, { border, chips: look.chips?.(a) })
   }
   return screen
 }
