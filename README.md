@@ -37,7 +37,7 @@ you scrub back through the session or replay it.
 │──────────────────────────────────────────────────────────────────────────────────────────────────│
 │ ◆ /clear                                                                                         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- ◉ session-viz  ● LIVE  6 agents · 9 tools · 840 tok  ⌖ overview  ↺ layout
+ ● LIVE  6 agents · 840 tok  ⌖ overview  ↺ layout
 ```
 
 The capture above is drawn from the synthetic session in the test

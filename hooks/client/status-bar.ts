@@ -1,5 +1,4 @@
-// The status bar: the wordmark, the transport badge, agent, tool and token
-// counts, the camera mode and layout reset buttons, and a truncation note
+// The status bar: the transport badge, the agent count and token total, the camera mode and layout reset buttons, and a truncation note
 // when history was cut.
 
 import type { CameraMode, Transport, ViewModel } from '../../types'
@@ -28,17 +27,14 @@ export type StatusExtras = {
 export const drawStatus = (g: Grid, y: number, view: ViewModel, extras: StatusExtras): { camera: Rect; reset: Rect } => {
   g.fill(0, y, g.w, 1, ' ', TEXT)
   let x = 1
-  x += g.text(x, y, '◉ session-viz', AMBER) + 2
   const t = view.timeline
   const badge = BADGE[t.transport](t.speed)
   const text = t.transport === 'live' && extras.isDotLit === false ? badge.text.replace('●', '○') : badge.text
   x += g.text(x, y, text, badge.color) + 2
   const agents = view.agents.filter(a => a.kind === 'sub').length
-  // A group's counts already include its children's.
-  const own = view.agents.filter(a => a.kind !== 'group')
-  const tools = own.reduce((s, a) => s + a.tools, 0)
-  const tokens = own.reduce((s, a) => s + a.tokens, 0)
-  x += g.text(x, y, `${agents} agents · ${tools} tools · ${formatTokens(tokens)} tok`, TEXT) + 2
+  // A group's total already includes its children's.
+  const tokens = view.agents.reduce((s, a) => s + (a.kind === 'group' ? 0 : a.tokens), 0)
+  x += g.text(x, y, `${agents} agents · ${formatTokens(tokens)} tok`, TEXT) + 2
   const camera = { x, y, w: g.text(x, y, `⌖ ${extras.camera}`, MUTED), h: 1 }
   x += camera.w + 2
   const reset = { x, y, w: g.text(x, y, '↺ layout', MUTED), h: 1 }

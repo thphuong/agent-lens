@@ -48,18 +48,19 @@ describe('session end', () => {
     for (let i = 0; i < 3; i++) await $.tool.call({ tool: 'Read', command: 'x' } as never)
     await clock.advance(300)
     const ui = await open()
-    expect(await ui.find({ type: 'Text', text: /3 tools/, in: 'graph' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /×3 /, in: 'graph' })).toBeDefined()
 
     state.id = 's2'
     await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
     await clock.advance(300)
     await ui.redraw()
-    expect(await ui.find({ type: 'Text', text: /0 agents · 0 tools/, in: 'graph' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /×0 /, in: 'graph' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /×3 /, in: 'graph' })).toBeUndefined()
 
     await $.tool.call({ tool: 'Grep', command: 'x' } as never)
     await clock.advance(300)
     await ui.redraw()
-    expect(await ui.find({ type: 'Text', text: /1 tools/, in: 'graph' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /×1 /, in: 'graph' })).toBeDefined()
     await ui.unmount()
   })
 
@@ -79,7 +80,7 @@ describe('session end', () => {
     await clock.advance(300)
     const ui = await open()
     expect(await ui.find({ type: 'Text', text: /old survey/, in: 'graph' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /1 agents · 2 tools/, in: 'graph' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /1 agents · /, in: 'graph' })).toBeDefined()
     await ui.unmount()
   })
 })

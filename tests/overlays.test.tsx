@@ -93,7 +93,7 @@ describe('mounted', () => {
     expect(await ui.find({ type: 'Text', text: /timeline/, in: 'graph' })).toBeDefined()
     await ui.resize({ columns: 87, rows: 20 })
     expect(await ui.find({ type: 'Text', text: /timeline/, in: 'graph' })).toBeUndefined()
-    expect(await ui.find({ type: 'Text', text: /session-viz/, in: 'graph' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /agents · /, in: 'graph' })).toBeDefined()
     await ui.unmount()
   })
 })
