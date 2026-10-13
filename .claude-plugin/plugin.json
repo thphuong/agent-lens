@@ -1,0 +1,10 @@
+{
+  "name": "session-viz",
+  "version": "0.1.0",
+  "description": "Draws the current session as a live, animated, scrubbable flow graph in a docked pane",
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "Truong Hoang Phuong"
+  }
+}

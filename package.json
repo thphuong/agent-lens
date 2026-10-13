@@ -1,0 +1,15 @@
+{
+  "name": "session-viz",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "claude plugin test .",
+    "validate": "claude plugin validate .",
+    "check": "pnpm typecheck && pnpm test && pnpm validate"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "packageManager": "pnpm@12.9.0"
+}
