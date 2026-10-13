@@ -74,3 +74,13 @@ test('a new card outside a group keeps clear of its frame', () => {
   const r = rectOf(grown.at(-1)!, after)!
   expect(r.x < frame.x + frame.w && frame.x < r.x + r.w && r.y < frame.y + frame.h && frame.y < r.y + r.h).toBe(false)
 })
+
+test('the cards seen early in a session sit where they first appeared, however many come later', () => {
+  const grown = [...tree, agent('b1', 'b'), agent('w3', 'wf'), agent('c', 'main'), agent('c1', 'c')]
+  const full = relayout(grown)
+  for (let n = 1; n <= grown.length; n++) {
+    const early = relayout(grown.slice(0, n))
+    for (const id of Object.keys(early)) expect(full[id]).toEqual(early[id])
+  }
+  expect(full.a!.x + 13).toBe(full.main!.x + 15)
+})

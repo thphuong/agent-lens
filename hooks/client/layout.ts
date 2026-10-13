@@ -1,5 +1,5 @@
-// Where cards sit, in world cells. New cards are placed incrementally and an
-// existing card never moves; a relayout lays out the whole tree afresh.
+// Where cards sit, in world cells. Cards are placed in arrival order and an
+// existing card never moves; a relayout places them all again from scratch.
 
 import type { AgentKind, Point, ViewAgent } from '../../types'
 
@@ -10,8 +10,6 @@ export const CARD: Record<AgentKind, { w: number; h: number }> = {
 }
 export const SIBLING_GAP = 3
 export const LEVEL_GAP = 4
-/** Room a workflow group's frame takes around its subtree. */
-export const GROUP_PAD = 2
 
 export type Rect = { x: number; y: number; w: number; h: number }
 export type Positions = Record<string, Point>
@@ -36,61 +34,11 @@ const childrenOf = (agents: readonly Node[]) => {
 }
 
 /**
- * A tidy tree: each subtree as wide as its card or its children side by side,
- * a parent centred over its children, levels stacked by the tallest card at
- * each depth. Deterministic for the same agents in the same order.
+ * Lays every card out afresh, in arrival order, as incremental placement
+ * would have: so the layout at any point of the timeline is the one the
+ * cards had when they first appeared.
  */
-export const relayout = (agents: readonly Node[]): Positions => {
-  const kids = childrenOf(agents)
-  const ids = new Set(agents.map(a => a.id))
-  const roots = agents.filter(a => a.parent === undefined || !ids.has(a.parent))
-  const widths = new Map<string, number>()
-  const width = (a: Node, seen: Set<string>): number => {
-    if (seen.has(a.id)) return sizeOf(a).w
-    seen.add(a.id)
-    const cs = kids.get(a.id) ?? []
-    const inner = cs.reduce((s, c) => s + width(c, seen), 0) + SIBLING_GAP * Math.max(0, cs.length - 1)
-    const w = Math.max(sizeOf(a).w, inner) + (a.kind === 'group' ? 2 * GROUP_PAD : 0)
-    widths.set(a.id, w)
-    return w
-  }
-  for (const r of roots) width(r, new Set())
-
-  const depthOf = new Map<string, number>()
-  const rowH: number[] = []
-  const mark = (a: Node, d: number) => {
-    if (depthOf.has(a.id)) return
-    depthOf.set(a.id, d)
-    rowH[d] = Math.max(rowH[d] ?? 0, sizeOf(a).h)
-    for (const c of kids.get(a.id) ?? []) mark(c, d + 1)
-  }
-  for (const r of roots) mark(r, 0)
-  const rowY: number[] = []
-  for (let d = 0, y = 0; d < rowH.length; d++) {
-    rowY[d] = y
-    y += rowH[d]! + LEVEL_GAP
-  }
-
-  const out: Positions = {}
-  const place = (a: Node, left: number) => {
-    if (out[a.id]) return
-    const w = widths.get(a.id) ?? sizeOf(a).w
-    out[a.id] = { x: left + Math.floor((w - sizeOf(a).w) / 2), y: rowY[depthOf.get(a.id) ?? 0]! }
-    const cs = kids.get(a.id) ?? []
-    const inner = cs.reduce((s, c) => s + (widths.get(c.id) ?? sizeOf(c).w), 0) + SIBLING_GAP * Math.max(0, cs.length - 1)
-    let x = left + Math.floor((w - inner) / 2)
-    for (const c of cs) {
-      place(c, x)
-      x += (widths.get(c.id) ?? sizeOf(c).w) + SIBLING_GAP
-    }
-  }
-  let left = 0
-  for (const r of roots) {
-    place(r, left)
-    left += (widths.get(r.id) ?? sizeOf(r).w) + SIBLING_GAP
-  }
-  return out
-}
+export const relayout = (agents: readonly Node[]): Positions => place({}, agents, {})
 
 const overlaps = (a: Rect, b: Rect, margin: number) =>
   a.x < b.x + b.w + margin && b.x < a.x + a.w + margin && a.y < b.y + b.h + margin && b.y < a.y + a.h + margin
@@ -108,8 +56,9 @@ export const place = (positions: Positions, agents: readonly Node[], pinned: Rea
     const r = rectOf(a, out)
     if (r) placed.push(r)
   }
-  // A group's frame is an obstacle too, except to the group's own members.
-  const frames = agents.filter(a => a.kind === 'group' && out[a.id]).map(g => ({ id: g.id, rect: frameOf(g, agents, out)! }))
+  // A group's frame is an obstacle too, except to the group's own members;
+  // measured as each card is placed, so one pass matches placing them one by one.
+  const groups = agents.filter(a => a.kind === 'group')
   const inside = (a: Node, group: string) => {
     for (let p = a.parent, k = 0; p !== undefined && k < 64; p = byId.get(p)?.parent, k++) if (p === group) return true
     return false
@@ -136,7 +85,7 @@ export const place = (positions: Positions, agents: readonly Node[], pinned: Rea
         : pr.x + Math.floor((pr.w - size.w) / 2)
     }
     const rect = { x, y, ...size }
-    const blocking = frames.filter(f => !inside(a, f.id)).map(f => f.rect)
+    const blocking = groups.flatMap(g => (out[g.id] && !inside(a, g.id) ? (frameOf(g, agents, out) ?? []) : []))
     while (placed.some(p => overlaps(rect, p, 1)) || blocking.some(f => overlaps(rect, f, 1))) rect.x += 1
     out[a.id] = { x: rect.x, y: rect.y }
     placed.push(rect)

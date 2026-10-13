@@ -2,7 +2,6 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import { strokes } from '../hooks/client/edges'
 import { Grid } from '../hooks/client/grid'
-import { relayout } from '../hooks/client/layout'
 import { drawScene } from '../hooks/client/scene'
 import type { ViewAgent } from '../types'
 
@@ -23,7 +22,8 @@ const rowText = (g: Grid, y: number) => g.ch.slice(y * g.w, (y + 1) * g.w).join(
 describe('edges', () => {
   test('a parent with three children joins through a shared bar', () => {
     const agents = [agent('main', undefined, 'main'), agent('a', 'main'), agent('b', 'main'), agent('c', 'main')]
-    const pos = relayout(agents)
+    // Main centred over the middle child.
+    const pos = { main: { x: 27, y: 0 }, a: { x: 0, y: 11 }, b: { x: 29, y: 11 }, c: { x: 58, y: 11 } }
     const g = new Grid(90, 20)
     drawScene(g, agents, pos, { x: 0, y: 0, z: 1 })
     const rows = Array.from({ length: g.h }, (_, y) => rowText(g, y))
@@ -53,7 +53,8 @@ describe('edges', () => {
 
 test('an off-centre parent meets the bar from above', () => {
   const agents = [agent('main', undefined, 'main'), agent('a', 'main'), agent('b', 'main')]
-  const pos = relayout(agents)
+  // Main centred between its two children, over neither.
+  const pos = { main: { x: 12, y: 0 }, a: { x: 0, y: 11 }, b: { x: 29, y: 11 } }
   const g = new Grid(90, 20)
   drawScene(g, agents, pos, { x: 0, y: 0, z: 1 })
   const rows = Array.from({ length: g.h }, (_, y) => rowText(g, y))
