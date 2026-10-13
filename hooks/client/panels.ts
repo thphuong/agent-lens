@@ -30,7 +30,7 @@ const duration = (ms: number) => (ms < 1000 ? `${ms}ms` : ms < 60_000 ? `${(ms /
 type Line = { text: string; color: string }
 
 /** The details as lines, before scrolling. */
-export const detailLines = (d: Details): Line[] => {
+export const detailLines = (d: Details, now = Date.now()): Line[] => {
   const lines: Line[] = [
     { text: d.label, color: TEXT },
     { text: `${STATUS_GLYPH[d.status]} ${d.status} · ${d.type}`, color: STATUS_COLOR[d.status] },
@@ -45,7 +45,9 @@ export const detailLines = (d: Details): Line[] => {
     for (const c of era.calls) {
       const glyph = c.state === 'run' ? '⚒' : c.state === 'ok' ? '✓' : c.state === 'err' ? '✗' : '?'
       const color = c.state === 'run' ? AMBER : c.state === 'ok' ? OK : c.state === 'err' ? ERR : MUTED
-      const took = c.start !== undefined && c.end !== undefined ? `  ${duration(c.end - c.start)}` : ''
+      // A call in flight shows its time so far, ticking while it runs.
+      const took =
+        c.start === undefined ? '' : c.end !== undefined ? `  ${duration(c.end - c.start)}` : c.state === 'run' ? `  ${duration(Math.max(0, now - c.start))}…` : ''
       lines.push({ text: `  ${glyph} ${c.tool}${took}`, color })
     }
   }
@@ -59,9 +61,9 @@ const panel = (g: Grid, rect: Rect, title: string) => {
 }
 
 /** Draws the details in `rect`, scrolled down `scroll` lines; answers the largest useful scroll. */
-export const drawDetails = (g: Grid, rect: Rect, d: Details, scroll: number): number => {
+export const drawDetails = (g: Grid, rect: Rect, d: Details, scroll: number, now = Date.now()): number => {
   panel(g, rect, 'details')
-  const lines = detailLines(d)
+  const lines = detailLines(d, now)
   const room = rect.h - 2
   const maxScroll = Math.max(0, lines.length - room)
   const from = Math.max(0, Math.min(maxScroll, scroll))

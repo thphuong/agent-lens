@@ -1,15 +1,18 @@
 import type { ClientModule } from 'claude-code'
 
-import type { Props } from '../../types'
+import type { Props, ViewAgent } from '../../types'
+import { FRAME_MS } from '../frame'
+import { Presentation } from './anim'
+import { Camera } from './camera'
 import { chipsFor } from './chips'
 import { Grid } from './grid'
 import { bounds, place, relayout, rectOf, type Positions, type Rect } from './layout'
 import { drawMinimap, minimapRect, needsMinimap } from './minimap'
 import { paint } from './paint'
-import { STATUS_COLOR } from './palette'
+import { AMBER, AMBER_DIM, GREY, mix, STATUS_COLOR } from './palette'
 import { drawDetails, drawHelp, drawInfo, overlayRect } from './panels'
-import { regions } from './regions'
-import { drawScene, type Camera } from './scene'
+import { regions, type Regions } from './regions'
+import { drawScene } from './scene'
 import { drawStatus } from './status-bar'
 import { drawPanel } from './timeline-panel'
 
@@ -17,71 +20,160 @@ import { drawPanel } from './timeline-panel'
 const MAX_CELLS = 40_000
 const MAX_COLUMNS = 400
 
-type S = {
+/**
+ * What one Client instance keeps between draws. Mutated in place: a draw
+ * records the props it was handed, and only the frame timer asks for redraws.
+ */
+export type Live = {
+  props: Props
   positions: Positions
-  /** The relayout request this instance last honoured. */
   relayoutSeq: number
+  camera: Camera
+  pres: Presentation
   detailScroll: number
+  /** The playhead last drawn, to tell a seek from new facts arriving. */
+  playhead: number
+  lastTick: number
+  isDotLit: boolean
+  /** The canvas size last drawn, for camera targets between draws. */
+  canvas: Rect
 }
 
-/** Positions for the agents in view: kept, pinned, or newly placed; all afresh after a relayout request. */
-const positionsFor = (props: Props, s: S | undefined): Positions => {
+type S = { live: Live; frame: number }
+
+const isRunning = (a: ViewAgent) => a.status === 'running'
+
+/** Places new agents, or all of them afresh after a relayout request; existing cards never move otherwise. */
+const syncPositions = (live: Live, props: Props): void => {
   const agents = props.view.agents
-  if (!s || s.relayoutSeq !== props.ui.relayoutSeq) return { ...relayout(agents), ...props.ui.pinned }
-  if (agents.every(a => s.positions[a.id])) return s.positions
-  return place(s.positions, agents, props.ui.pinned)
+  if (live.relayoutSeq !== props.ui.relayoutSeq) {
+    live.positions = { ...relayout(agents), ...props.ui.pinned }
+    live.relayoutSeq = props.ui.relayoutSeq
+  } else if (!agents.every(a => live.positions[a.id])) {
+    live.positions = place(live.positions, agents, props.ui.pinned)
+  }
 }
 
-/** A still camera fitting the whole graph, centred, never zoomed in past 1. */
-const staticCamera = (graph: Rect | undefined, w: number, h: number): Camera => {
-  if (!graph) return { x: 0, y: -1, z: 1 }
-  const b = { ...graph, x: graph.x - 1, y: graph.y - 1, w: graph.w + 2, h: graph.h + 2 }
-  const z = Math.min(1, w / b.w, h / b.h)
-  return { x: b.x - (w / z - b.w) / 2, y: b.y, z }
+const graphBounds = (props: Props, positions: Positions): Rect | undefined => {
+  const rects = props.view.agents.flatMap(a => rectOf(a, positions) ?? [])
+  return rects.length ? bounds(rects, 1) : undefined
+}
+
+/** Points the camera by its mode: the most recently active agent, the whole graph, or wherever the person left it. */
+const aimCamera = (live: Live, canvas: Rect, snap: boolean): void => {
+  const { props, positions, camera } = live
+  const graph = graphBounds(props, positions)
+  if (!graph || props.ui.camera === 'manual') return
+  let target
+  if (props.ui.camera === 'overview') target = Camera.fit(graph, canvas.w, canvas.h)
+  else {
+    const active = props.view.agents.reduce<ViewAgent | undefined>((b, a) => (a.kind !== 'group' && (!b || a.lastSeq > b.lastSeq) ? a : b), undefined)
+    const rect = active && rectOf(active, positions)
+    if (!rect) return
+    target = Camera.centre(rect, canvas.w, canvas.h, camera.target?.z ?? camera.z)
+  }
+  camera.aim(target)
+  if (snap) camera.glide(1e9)
 }
 
 /** Draws one frame of the whole Client into a grid of `w`×`h`. */
-export const drawFrame = (props: Props, positions: Positions, w: number, h: number, detailScroll: number): Grid => {
+export const drawFrame = (live: Live, r: Regions, w: number, h: number): Grid => {
+  const { props, positions, camera, pres } = live
   const g = new Grid(w, h)
-  const r = regions(w, h, props)
   const agents = props.view.agents
-  const rects = agents.flatMap(a => {
-    const rect = rectOf(a, positions)
-    return rect ? [{ rect, color: STATUS_COLOR[a.status] }] : []
-  })
-  const graph = rects.length ? bounds(rects.map(c => c.rect)) : undefined
-  const cam = staticCamera(graph, r.canvas.w, r.canvas.h)
-
   const canvas = new Grid(r.canvas.w, r.canvas.h)
-  drawScene(canvas, agents, positions, cam, {
+  const pulse = pres.pulse() / 3
+  const borders = new Map(agents.filter(isRunning).map(a => [a.id, mix(AMBER_DIM, AMBER, pulse)]))
+  drawScene(canvas, agents, positions, camera, {
     selected: props.ui.selected,
-    chips: a => chipsFor(a, props.view.runs),
+    borders,
+    ants: { phase: pres.antPhase(), agents: new Set(agents.filter(isRunning).map(a => a.id)) },
+    chips: a =>
+      chipsFor(a, props.view.runs, run => pres.chipGlow(run) !== undefined).map(c => {
+        const run = props.view.runs.find(x => x.key === c.key)!
+        const level = pres.chipGlow(run) ?? 0
+        return { ...c, color: mix(c.color, GREY[0], (3 - level) / 4) }
+      }),
   })
-  const view = { x: cam.x, y: cam.y, w: r.canvas.w / cam.z, h: r.canvas.h / cam.z }
-  if (graph && needsMinimap(graph, view)) drawMinimap(canvas, minimapRect({ x: 0, y: 0, w: canvas.w, h: canvas.h }), graph, rects, view)
+  const graph = graphBounds(props, positions)
+  const view = { x: camera.x, y: camera.y, w: r.canvas.w / camera.z, h: r.canvas.h / camera.z }
+  if (graph && needsMinimap(graph, view)) {
+    const cards = agents.flatMap(a => {
+      const rect = rectOf(a, positions)
+      return rect ? [{ rect, color: STATUS_COLOR[a.status] }] : []
+    })
+    drawMinimap(canvas, minimapRect({ x: 0, y: 0, w: canvas.w, h: canvas.h }), graph, cards, view)
+  }
   g.blit(canvas, r.canvas.x, r.canvas.y)
 
-  if (r.details && props.details) drawDetails(g, r.details, props.details, detailScroll)
+  if (r.details && props.details) drawDetails(g, r.details, props.details, live.detailScroll)
   if (props.ui.overlay === 'info' && props.info) drawInfo(g, overlayRect(r.canvas, 52, 10), props.info)
   if (props.ui.overlay === 'help') drawHelp(g, overlayRect(r.canvas, 52, 16))
   if (r.panel.h > 0) drawPanel(g, r.panel, props.view.timeline, r.isCompact)
-  drawStatus(g, r.statusY, props.view, { camera: props.ui.camera })
+  drawStatus(g, r.statusY, props.view, { camera: props.ui.camera, isDotLit: live.isDotLit })
   return g
+}
+
+/** One frame-clock tick: steps presentation time and the camera, and redraws only while something moves. */
+const tick = (surface: Parameters<ClientModule<Props, S>>[1]): void => {
+  const s = surface.state
+  if (!s) return
+  const live = s.live
+  const now = performance.now()
+  const dt = Math.min(250, now - live.lastTick)
+  live.lastTick = now
+  const t = live.props.view.timeline.transport
+  live.pres.advance(dt, t === 'live' || t === 'playing' || t === 'idle')
+  aimCamera(live, live.canvas, false)
+  const moved = live.camera.glide(dt)
+  const dot = t === 'live' ? live.pres.isDotLit() : true
+  const dotFlipped = dot !== live.isDotLit
+  live.isDotLit = dot
+  const animating = live.props.view.agents.some(isRunning) || live.pres.isGlowing(live.props.view.runs)
+  if (animating || moved || dotFlipped) surface.setState({ live, frame: s.frame + 1 })
 }
 
 const Graph: ClientModule<Props, S> = (props, surface) => {
   const { Text } = surface.elements
   // A hot reload can run this module against props an older hooks module built.
   if (props?.v !== 1) return <Text dimColor>session-viz: waiting for the session…</Text>
-  const s = surface.state
-  const positions = positionsFor(props, s)
-  if (s?.positions !== positions) {
-    // New props are an event between draws, so this is no render loop.
-    surface.setState({ positions, relayoutSeq: props.ui.relayoutSeq, detailScroll: s?.detailScroll ?? 0 })
-  }
   const cols = Math.max(1, Math.min(MAX_COLUMNS, surface.columns))
   const rows = Math.max(1, Math.min(Math.floor(MAX_CELLS / cols), surface.rows))
-  return paint(surface.elements, drawFrame(props, positions, cols, rows, s?.detailScroll ?? 0)).tree
+  const r = regions(cols, rows, props)
+  let live = surface.state?.live
+  const isFirst = live === undefined
+  if (!live) {
+    // A fresh instance (a mount, a remount after a fault or a reload) re-seeds
+    // from props: pinned positions and camera mode come back, and everything
+    // already settled counts as seen, so nothing flashes.
+    live = {
+      props,
+      positions: {},
+      relayoutSeq: -1,
+      camera: new Camera(),
+      pres: new Presentation(),
+      detailScroll: 0,
+      playhead: props.view.timeline.playhead,
+      lastTick: performance.now(),
+      isDotLit: true,
+      canvas: r.canvas,
+    }
+    live.pres.adoptBaseline(props.view.seq)
+    surface.setState({ live, frame: 0 })
+    surface.every(FRAME_MS, () => tick(surface))
+  }
+  const t = props.view.timeline
+  // A seek, or scrubbing while paused, adopts what is shown as seen.
+  if (t.transport === 'paused' || t.transport === 'history' || t.playhead < live.playhead) live.pres.adoptBaseline(props.view.seq)
+  live.playhead = t.playhead
+  live.props = props
+  // A new size is no motion to animate: the camera lands at once.
+  const isResized = live.canvas.w !== r.canvas.w || live.canvas.h !== r.canvas.h
+  live.canvas = r.canvas
+  syncPositions(live, props)
+  live.pres.observe(props.view.runs)
+  aimCamera(live, r.canvas, isFirst || isResized)
+  return paint(surface.elements, drawFrame(live, r, cols, rows)).tree
 }
 
 export default Graph

@@ -65,3 +65,12 @@ describe('incremental placement', () => {
     expect(after.a).toEqual({ x: 500, y: 300 })
   })
 })
+
+test('a new card outside a group keeps clear of its frame', () => {
+  const before = relayout(tree)
+  const grown = [...tree, agent('late', 'main')]
+  const after = place(before, grown, {})
+  const frame = frameOf(tree[4]!, grown, after)!
+  const r = rectOf(grown.at(-1)!, after)!
+  expect(r.x < frame.x + frame.w && frame.x < r.x + r.w && r.y < frame.y + frame.h && frame.y < r.y + r.h).toBe(false)
+})

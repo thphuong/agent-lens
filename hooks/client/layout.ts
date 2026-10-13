@@ -108,6 +108,12 @@ export const place = (positions: Positions, agents: readonly Node[], pinned: Rea
     const r = rectOf(a, out)
     if (r) placed.push(r)
   }
+  // A group's frame is an obstacle too, except to the group's own members.
+  const frames = agents.filter(a => a.kind === 'group' && out[a.id]).map(g => ({ id: g.id, rect: frameOf(g, agents, out)! }))
+  const inside = (a: Node, group: string) => {
+    for (let p = a.parent, k = 0; p !== undefined && k < 64; p = byId.get(p)?.parent, k++) if (p === group) return true
+    return false
+  }
   const visit = (a: Node, depth: number) => {
     if (out[a.id] || depth > 64) return
     const pin = pinned[a.id]
@@ -130,7 +136,8 @@ export const place = (positions: Positions, agents: readonly Node[], pinned: Rea
         : pr.x + Math.floor((pr.w - size.w) / 2)
     }
     const rect = { x, y, ...size }
-    while (placed.some(p => overlaps(rect, p, 1))) rect.x += 1
+    const blocking = frames.filter(f => !inside(a, f.id)).map(f => f.rect)
+    while (placed.some(p => overlaps(rect, p, 1)) || blocking.some(f => overlaps(rect, f, 1))) rect.x += 1
     out[a.id] = { x: rect.x, y: rect.y }
     placed.push(rect)
   }
