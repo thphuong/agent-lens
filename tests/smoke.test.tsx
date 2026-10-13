@@ -17,8 +17,8 @@ const PANE = {
 test('the pane mounts the graph Client on the terminal', async $ => {
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.resize({ columns: 87, rows: 32 })
-  const title = await ui.find({ type: 'Text', text: /session-viz/, in: 'graph' })
-  expect(title).toBeDefined()
+  const card = await ui.find({ type: 'Text', text: /main/, in: 'graph' })
+  expect(card).toBeDefined()
   await ui.unmount()
 })
 

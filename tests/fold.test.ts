@@ -118,9 +118,11 @@ describe('lifecycle', () => {
     expect(runsOf(foldAll(s.numbered()))[0]?.state).toBe('unknown')
   })
 
-  test('main is running while a prompt awaits its turn, else idle', () => {
+  test('main is running from its turn start to its end; a command alone leaves it idle', () => {
     const s = new Session()
-    s.prompt('go')
+    s.prompt('/viz')
+    expect(byId(s.numbered()).get('main')?.status).toBe('idle')
+    s.start()
     expect(byId(s.numbered()).get('main')?.status).toBe('running')
     s.finish(undefined)
     expect(byId(s.numbered()).get('main')?.status).toBe('idle')

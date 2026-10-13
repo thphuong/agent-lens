@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Props, UiState } from '../types'
+import { FaultGate } from './fault-gate'
 import { FRAME_MS } from './frame'
 import { agentSpawned, backfill, promptSubmitted, toolEnded, toolStarted, turnCompleted, turnStarted } from './ingest'
 import { applyIntents, parseIntents } from './intents'
@@ -26,6 +27,7 @@ const timeline = new Timeline()
 const prompts = new Map<string, string>()
 const fetching = new Set<string>()
 let stopReplay: (() => void) | undefined
+const faults = new FaultGate()
 const PROMPT_CHARS = 600
 
 const portFor = ($: EngineInterface): LogPort => ({
@@ -197,7 +199,16 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // A Client that keeps failing is left out of the pane until /viz asks again.
+  on('ui.fault', { requestId: PANE }, async ($, e, next) => {
+    if (faults.record(Date.now())) {
+      $.ui.log(`session-viz: graph paused after repeated errors (${e.phase}): ${e.reason}`, { to: 'debug' })
+    }
+    return next(e)
+  })
+
   on('command.run', { command: 'viz' }, async $ => {
+    if (faults.reset()) $.ui.invalidate('ui.render')
     const opened = await $.ui.open({ id: PANE, title: 'session graph' })
     return { text: opened.isPlaced ? 'Session graph opened.' : 'Session graph is waiting for room.' }
   })
@@ -219,6 +230,7 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Text } = $.ui.resolve(e)
     if (e.surface !== 'terminal') return <Text>The session graph draws on the terminal only.</Text>
+    if (faults.isPaused) return <Text dimColor>graph paused after an error — /viz to retry</Text>
     const { Client } = $.ui.resolve(e)
     const bodyRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 24
     const props = propsFor($, await read($, uiAtom))

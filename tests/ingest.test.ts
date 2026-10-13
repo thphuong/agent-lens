@@ -67,13 +67,13 @@ describe('translators', () => {
 
   test('turns: a subagent start reopens, a completion ends it with tokens', () => {
     expect(turnStarted({ text: '', turnId: 't1', agentId: 'a' }, 1)).toEqual([{ kind: 'reopened', at: 1, agent: 'a', turn: 't1' }])
-    expect(turnStarted({ text: '', turnId: 't1' }, 1)).toEqual([])
+    expect(turnStarted({ text: '', turnId: 't1' }, 1)).toEqual([{ kind: 'reopened', at: 1, agent: 'main', turn: 't1' }])
     const usage = { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4, model: 'm' }
     const done = turnCompleted({ turnId: 't', agentId: 'a', reason: 'aborted', usage } as never, 2)
     expect(done).toContainEqual(expect.objectContaining({ kind: 'tokens', n: 10 }))
     expect(done).toContainEqual(expect.objectContaining({ kind: 'ended', status: 'stopped' }))
     const main = turnCompleted({ turnId: 't', reason: 'answer', usage } as never, 2)
-    expect(main.some(f => f.kind === 'ended')).toBe(false)
+    expect(main).toContainEqual(expect.objectContaining({ kind: 'ended', agent: 'main', status: 'done' }))
   })
 
   test('prompts keep a sanitised first line, commands their name only', () => {

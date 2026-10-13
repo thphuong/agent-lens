@@ -78,9 +78,8 @@ export const agentSpawned = (e: AgentSpawnInput, r: AgentSpawnResult, at: number
   return facts
 }
 
-/** A subagent's turn starting again is a teammate waking or a resumed run. */
-export const turnStarted = (e: TurnStartInput, at: number): NewFact[] =>
-  e.agentId === undefined ? [] : [{ kind: 'reopened', at, agent: e.agentId, turn: e.turnId }]
+/** A turn starting: main getting to work, a teammate waking or a resumed run. */
+export const turnStarted = (e: TurnStartInput, at: number): NewFact[] => [{ kind: 'reopened', at, agent: who(e.agentId), turn: e.turnId }]
 
 const END: Record<TurnCompleteInput['reason'], EndStatus> = {
   answer: 'done',
@@ -98,7 +97,7 @@ export const turnCompleted = (e: TurnCompleteInput, at: number): NewFact[] => {
     facts.push({ kind: 'tokens', at, agent, n, turn: e.turnId })
     facts.push({ kind: 'model', at, agent, model: cellText(u.model, LABEL_CELLS) })
   }
-  if (e.agentId !== undefined) facts.push({ kind: 'ended', at, agent, status: END[e.reason], turn: e.turnId })
+  facts.push({ kind: 'ended', at, agent, status: END[e.reason], turn: e.turnId })
   return facts
 }
 

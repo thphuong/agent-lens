@@ -152,19 +152,13 @@ export const foldAll = (facts: readonly Fact[], upTo = facts.length): SessionMod
 
 /**
  * A call's settled outcome, or undefined while it is in flight. A call left
- * open is closed as `unknown` once its agent's turn ended after it started
- * (a subagent's `ended`, main's next prompt): it was in flight across a
- * reload, or its end was never observed.
+ * open is closed as `unknown` once its agent's turn ended after it started:
+ * it was in flight across a reload, or its end was never observed.
  */
 export const callOutcome = (m: SessionModel, c: Call): Outcome | undefined => {
   if (c.outcome !== undefined) return c.outcome
   const start = c.startSeq ?? 0
-  const agent = c.agent ?? MAIN
-  if (agent === MAIN) {
-    for (const p of m.prompts.keys()) if (p > start) return 'unknown'
-    return undefined
-  }
-  const a = m.agents.get(agent)
+  const a = m.agents.get(c.agent ?? MAIN)
   return a?.endedSeqs.some(s => s > start) ? 'unknown' : undefined
 }
 
@@ -218,7 +212,6 @@ export const derive = (m: SessionModel): DerivedAgent[] => {
     counts.set(c.agent, n)
   }
 
-  const lastPrompt = Math.max(0, ...m.prompts.keys())
   const out = new Map<string, DerivedAgent>()
   for (const a of visible.values()) {
     const n = counts.get(a.id)
@@ -227,8 +220,9 @@ export const derive = (m: SessionModel): DerivedAgent[] => {
     else if (parent === undefined || !visible.has(parent) || parent === a.id) parent = MAIN
     let status: DisplayStatus
     if (a.id === MAIN) {
-      const turnOpen = lastPrompt > (a.tokens?.seq ?? 0)
-      status = n?.open || turnOpen ? 'running' : 'idle'
+      // Main is only ever working or waiting: running from a turn's start to its end.
+      const lc = a.lifecycle?.value
+      status = n?.open || lc?.kind === 'reopened' ? 'running' : 'idle'
     } else {
       const lc = a.lifecycle?.value
       status =

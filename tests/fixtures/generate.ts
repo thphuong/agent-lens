@@ -86,6 +86,11 @@ export class Session {
     return agentId
   }
 
+  /** Main (or a subagent) starts a turn. */
+  start(agentId?: string) {
+    this.facts.push(...turnStarted({ text: '', turnId: this.id('turn'), agentId }, this.tick()))
+  }
+
   wake(agentId: string) {
     this.facts.push(...turnStarted({ text: '', turnId: this.id('turn'), agentId }, this.tick()))
   }
@@ -109,6 +114,7 @@ export const reference = (): Session => {
   const s = new Session()
   s.facts.push({ kind: 'agent', agent: MAIN, agentKind: 'main' })
   s.prompt('map the fake repo\nwith more lines')
+  s.start()
   s.call(undefined, 'Read')
   const explore = s.spawn({ subagentType: 'explorer', description: 'scan files' })
   s.call(explore, 'Grep')
