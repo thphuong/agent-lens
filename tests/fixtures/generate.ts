@@ -80,7 +80,7 @@ export class Session {
   }
 
   spawn(over: Partial<AgentSpawnInput>) {
-    const agentId = this.id('agent')
+    const agentId = over.resume?.agentId ?? this.id('agent')
     const r: AgentSpawnResult = { model: 'model-b', agentId }
     this.facts.push(...agentSpawned(spawnInput(over), r, this.tick()))
     return agentId

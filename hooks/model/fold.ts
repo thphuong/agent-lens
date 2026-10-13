@@ -1,0 +1,275 @@
+// Folds facts into a SessionModel. The result depends only on the set of
+// facts: every store is keyed, a fact about an agent not yet seen still
+// attaches, re-applying a fact changes nothing, and where two facts compete
+// the one with the higher seq wins. The model is mutated in place, so a full
+// refold on every seek stays cheap.
+
+import { MAIN, type AgentKind, type EndStatus, type Fact, type LiveStatus, type Outcome } from './facts'
+
+/** A value with the seq of the fact that set it, so competing facts resolve by seq. */
+type Stamped<T> = { seq: number; value: T }
+
+export type AgentState = {
+  id: string
+  /** Declared by an `agent` fact; an id seen only on tool calls is the engine's own. */
+  kind?: AgentKind
+  /** From the earliest `spawn` fact. */
+  parent?: Stamped<string>
+  label?: Stamped<{ text: string; type?: string }>
+  model?: Stamped<string>
+  firstSeq: number
+  lastSeq: number
+  /** The newest lifecycle fact: `spawn`, `reopened`, `ended` or `status`. */
+  lifecycle?: Stamped<Lifecycle>
+  /** Seqs of this agent's `ended` facts, which close calls left open before them. */
+  endedSeqs: number[]
+  tokens?: Stamped<number>
+  truncated: boolean
+}
+
+export type Lifecycle =
+  | { kind: 'spawn' }
+  | { kind: 'reopened' }
+  | { kind: 'ended'; status: EndStatus }
+  | { kind: 'status'; status: LiveStatus }
+
+export type Call = {
+  id: string
+  agent?: string
+  tool?: string
+  startSeq?: number
+  endSeq?: number
+  start?: number
+  end?: number
+  outcome?: Outcome
+}
+
+export type Prompt = { seq: number; at?: number; line: string }
+
+export type SessionModel = {
+  agents: Map<string, AgentState>
+  calls: Map<string, Call>
+  prompts: Map<number, Prompt>
+  truncated: boolean
+  /** The highest seq applied. */
+  seq: number
+}
+
+export const createModel = (): SessionModel => ({ agents: new Map(), calls: new Map(), prompts: new Map(), truncated: false, seq: 0 })
+
+const agentOf = (m: SessionModel, id: string, seq: number): AgentState => {
+  let a = m.agents.get(id)
+  if (!a) {
+    a = { id, firstSeq: seq, lastSeq: seq, endedSeqs: [], truncated: false }
+    m.agents.set(id, a)
+  }
+  a.firstSeq = Math.min(a.firstSeq, seq)
+  a.lastSeq = Math.max(a.lastSeq, seq)
+  return a
+}
+
+const newer = <T>(cur: Stamped<T> | undefined, seq: number, value: T): Stamped<T> =>
+  cur && cur.seq >= seq ? cur : { seq, value }
+
+const callOf = (m: SessionModel, id: string): Call => {
+  let c = m.calls.get(id)
+  if (!c) {
+    c = { id }
+    m.calls.set(id, c)
+  }
+  return c
+}
+
+/** Applies one fact to the model in place. */
+export const apply = (m: SessionModel, f: Fact): void => {
+  m.seq = Math.max(m.seq, f.seq)
+  const a = agentOf(m, f.agent, f.seq)
+  switch (f.kind) {
+    case 'agent':
+      a.kind = f.agentKind
+      break
+    case 'spawn':
+      // The earliest spawn names the parent; a later one is only a lifecycle step.
+      if (!a.parent || a.parent.seq > f.seq) a.parent = { seq: f.seq, value: f.parent }
+      a.lifecycle = newer(a.lifecycle, f.seq, { kind: 'spawn' })
+      break
+    case 'label':
+      a.label = newer(a.label, f.seq, { text: f.text, type: f.type })
+      break
+    case 'model':
+      a.model = newer(a.model, f.seq, f.model)
+      break
+    case 'prompt':
+      m.prompts.set(f.seq, { seq: f.seq, at: f.at, line: f.line })
+      break
+    case 'toolStart': {
+      const c = callOf(m, f.call)
+      c.agent = f.agent
+      c.tool = f.tool
+      c.startSeq = f.seq
+      c.start = f.at
+      break
+    }
+    case 'toolEnd': {
+      const c = callOf(m, f.call)
+      c.agent ??= f.agent
+      c.endSeq = f.seq
+      c.end = f.at
+      c.outcome = f.outcome
+      break
+    }
+    case 'tokens':
+      a.tokens = newer(a.tokens, f.seq, f.n)
+      break
+    case 'ended':
+      if (!a.endedSeqs.includes(f.seq)) a.endedSeqs.push(f.seq)
+      a.lifecycle = newer(a.lifecycle, f.seq, { kind: 'ended', status: f.status })
+      break
+    case 'reopened':
+      a.lifecycle = newer(a.lifecycle, f.seq, { kind: 'reopened' })
+      break
+    case 'status':
+      a.lifecycle = newer(a.lifecycle, f.seq, { kind: 'status', status: f.status })
+      break
+    case 'truncated':
+      a.truncated = true
+      m.truncated = true
+      break
+  }
+}
+
+/** Folds the first `upTo` facts (all by default) into a fresh model. */
+export const foldAll = (facts: readonly Fact[], upTo = facts.length): SessionModel => {
+  const m = createModel()
+  const n = Math.min(upTo, facts.length)
+  for (let i = 0; i < n; i++) apply(m, facts[i]!)
+  return m
+}
+
+export type DisplayStatus = 'running' | 'idle' | 'done' | 'failed' | 'stopped'
+
+/**
+ * A call's settled outcome, or undefined while it is in flight. A call left
+ * open is closed as `unknown` once its agent's turn ended after it started
+ * (a subagent's `ended`, main's next prompt): it was in flight across a
+ * reload, or its end was never observed.
+ */
+export const callOutcome = (m: SessionModel, c: Call): Outcome | undefined => {
+  if (c.outcome !== undefined) return c.outcome
+  const start = c.startSeq ?? 0
+  const agent = c.agent ?? MAIN
+  if (agent === MAIN) {
+    for (const p of m.prompts.keys()) if (p > start) return 'unknown'
+    return undefined
+  }
+  const a = m.agents.get(agent)
+  return a?.endedSeqs.some(s => s > start) ? 'unknown' : undefined
+}
+
+const LIVE: Record<LiveStatus, DisplayStatus> = {
+  pending: 'running',
+  running: 'running',
+  waiting: 'running',
+  idle: 'idle',
+  completed: 'done',
+  failed: 'failed',
+  killed: 'stopped',
+}
+
+const TERMINAL = new Set<DisplayStatus>(['done', 'failed', 'stopped'])
+
+export type DerivedAgent = {
+  id: string
+  parent?: string
+  kind: AgentKind
+  label: string
+  type: string
+  model?: string
+  status: DisplayStatus
+  /** The tool of the newest call still in flight. */
+  tool?: string
+  tools: number
+  tokens: number
+  firstSeq: number
+  lastSeq: number
+  truncated: boolean
+}
+
+/**
+ * The display projection of the model: one entry per visible agent (engine
+ * forks left out), parents resolved to a visible agent, and groups rolled up
+ * from their children. Pure; never stored.
+ */
+export const derive = (m: SessionModel): DerivedAgent[] => {
+  const visible = new Map<string, AgentState>()
+  for (const a of m.agents.values()) if (a.kind !== undefined) visible.set(a.id, a)
+  // Main is always drawn, whether or not its `agent` fact is in the set yet.
+  const main = m.agents.get(MAIN)
+  visible.set(MAIN, { ...(main ?? { id: MAIN, firstSeq: 0, lastSeq: 0, endedSeqs: [], truncated: false }), kind: 'main' })
+
+  const counts = new Map<string, { tools: number; open?: Call }>()
+  for (const c of m.calls.values()) {
+    if (c.startSeq === undefined || c.agent === undefined) continue
+    const n = counts.get(c.agent) ?? { tools: 0 }
+    n.tools += 1
+    if (callOutcome(m, c) === undefined && (!n.open || (n.open.startSeq ?? 0) < c.startSeq)) n.open = c
+    counts.set(c.agent, n)
+  }
+
+  const lastPrompt = Math.max(0, ...m.prompts.keys())
+  const out = new Map<string, DerivedAgent>()
+  for (const a of visible.values()) {
+    const n = counts.get(a.id)
+    let parent = a.parent?.value
+    if (a.id === MAIN) parent = undefined
+    else if (parent === undefined || !visible.has(parent) || parent === a.id) parent = MAIN
+    let status: DisplayStatus
+    if (a.id === MAIN) {
+      const turnOpen = lastPrompt > (a.tokens?.seq ?? 0)
+      status = n?.open || turnOpen ? 'running' : 'idle'
+    } else {
+      const lc = a.lifecycle?.value
+      status =
+        lc === undefined || lc.kind === 'spawn' || lc.kind === 'reopened'
+          ? 'running'
+          : lc.kind === 'ended'
+            ? lc.status
+            : LIVE[lc.status]
+      if (n?.open && (!TERMINAL.has(status) || (a.lifecycle?.seq ?? 0) < (n.open.startSeq ?? 0))) status = 'running'
+    }
+    out.set(a.id, {
+      id: a.id,
+      parent,
+      kind: a.kind!,
+      label: a.label?.value.text ?? (a.id === MAIN ? 'main' : a.kind === 'group' ? 'workflow' : 'agent'),
+      type: a.label?.value.type ?? (a.kind === 'group' ? 'workflow' : a.kind === 'main' ? 'main' : 'agent'),
+      model: a.model?.value,
+      status,
+      tool: n?.open?.tool,
+      tools: n?.tools ?? 0,
+      tokens: a.tokens?.value ?? 0,
+      firstSeq: a.firstSeq,
+      lastSeq: a.lastSeq,
+      truncated: a.truncated,
+    })
+  }
+
+  // A group is running until it has children and all of them are settled;
+  // then failed if any child failed, else done. Nested groups roll up first.
+  const groups = [...out.values()].filter(d => d.kind === 'group')
+  const depth = (d: DerivedAgent): number => {
+    let k = 0
+    for (let p = d.parent; p !== undefined && k < 64; p = out.get(p)?.parent) k++
+    return k
+  }
+  groups.sort((x, y) => depth(y) - depth(x))
+  for (const g of groups) {
+    const kids = [...out.values()].filter(d => d.parent === g.id)
+    if (kids.length === 0 || kids.some(k => !TERMINAL.has(k.status))) g.status = 'running'
+    else g.status = kids.some(k => k.status === 'failed') ? 'failed' : 'done'
+    g.tools = kids.reduce((s, k) => s + k.tools, g.tools)
+    g.tokens = kids.reduce((s, k) => s + k.tokens, g.tokens)
+    g.lastSeq = kids.reduce((s, k) => Math.max(s, k.lastSeq), g.lastSeq)
+  }
+  return [...out.values()].sort((x, y) => x.firstSeq - y.firstSeq || (x.id < y.id ? -1 : 1))
+}
