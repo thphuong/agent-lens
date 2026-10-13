@@ -57,7 +57,8 @@ Edits under `hooks/client/` load the next time the pane draws afresh, so
 run `/viz` again after changing them.
 
 `pnpm check` typechecks, runs the plugin tests and validates the
-plugin.
+plugin. [docs/architecture.md](./docs/architecture.md) explains how the
+mod is built and why.
 
 ## Use
 
