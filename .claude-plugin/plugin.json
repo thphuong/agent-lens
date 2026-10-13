@@ -1,7 +1,7 @@
 {
   "name": "session-viz",
   "version": "0.1.0",
-  "description": "Draws the current session as a live, animated, scrubbable flow graph in a docked pane",
+  "description": "Draws the current session's agents and tool calls as a live, animated, scrubbable graph in a docked pane",
   "license": "MIT",
   "types": "./types/index.d.ts",
   "author": {
