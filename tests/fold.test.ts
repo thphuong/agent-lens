@@ -204,6 +204,23 @@ describe('lifecycle', () => {
     })
   })
 
+  test('an agent the engine lists as finished closes its wave, and leaves its calls as they were', () => {
+    const facts: Fact[] = [
+      { seq: 1, agent: 'main', kind: 'agent', agentKind: 'main' },
+      { seq: 2, agent: 'a', kind: 'agent', agentKind: 'sub' },
+      { seq: 3, agent: 'a', kind: 'spawn', parent: 'main' },
+      { seq: 4, agent: 'a', kind: 'toolStart', call: 'c', tool: 'Read' },
+      { seq: 5, agent: 'a', kind: 'status', status: 'killed' },
+      { seq: 6, agent: 'b', kind: 'agent', agentKind: 'sub' },
+      { seq: 7, agent: 'b', kind: 'spawn', parent: 'main' },
+    ]
+    each(facts, d => {
+      expect(d.get('a')?.endedSeq).toBe(5)
+      expect(d.get('b')?.wave).toBe(1)
+    })
+    expect(runsOf(foldAll(facts))[0]?.state).toBe('run')
+  })
+
   test('a teammate wakes after going idle', () => {
     const s = new Session()
     const mate = s.spawn({ isTeammate: true })

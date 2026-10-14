@@ -24,6 +24,8 @@ export type AgentState = {
   lifecycle?: Stamped<Lifecycle>
   /** Seqs of this agent's `ended` facts, which close calls left open before them. */
   endedSeqs: number[]
+  /** The earliest `ended` fact, or `status` fact that reports a finished run; calls stay as they are. */
+  firstEnd?: number
   /** One entry per model call, by its usage key. */
   usage: Map<string, Usage>
   /** A legacy turn total, used only while `usage` is empty. */
@@ -134,6 +136,7 @@ export const apply = (m: SessionModel, f: Fact): void => {
       break
     case 'ended':
       if (!a.endedSeqs.includes(f.seq)) a.endedSeqs.push(f.seq)
+      a.firstEnd = Math.min(a.firstEnd ?? f.seq, f.seq)
       a.lifecycle = newer(a.lifecycle, f.seq, { kind: 'ended', status: f.status })
       break
     case 'reopened':
@@ -141,6 +144,7 @@ export const apply = (m: SessionModel, f: Fact): void => {
       break
     case 'status':
       a.lifecycle = newer(a.lifecycle, f.seq, { kind: 'status', status: f.status })
+      if (TERMINAL.has(LIVE[f.status])) a.firstEnd = Math.min(a.firstEnd ?? f.seq, f.seq)
       break
     case 'truncated':
       a.truncated = true
@@ -205,9 +209,9 @@ export type DerivedAgent = {
   /**
    * The earliest end, not the latest, so a resumed agent never changes what
    * was decided while it first ran. Absent for a group, which runs while any
-   * child that has spawned does. Only `ended` facts count: an agent whose end
-   * arrived only as a `status` fact has none, so its wave never closes and
-   * every later sibling joins it.
+   * child that has spawned does. A `status` fact that reports the run
+   * finished counts, so an agent whose turn end was missed still closes its
+   * wave.
    */
   endedSeq?: number
   /**
@@ -242,8 +246,6 @@ const metrics = (a: AgentState) => {
   if (a.usage.size === 0) tok = a.tokens?.value ?? 0
   return { ctx: last ? last.input + last.cacheRead + last.cacheWrite : 0, tok, cacheRead, inputAll }
 }
-
-const firstEnd = (a: AgentState): number | undefined => (a.endedSeqs.length ? Math.min(...a.endedSeqs) : undefined)
 
 /**
  * The display projection of the model: one entry per visible agent (engine
@@ -300,7 +302,7 @@ export const derive = (m: SessionModel): DerivedAgent[] => {
       ...metrics(a),
       firstSeq: a.firstSeq,
       lastSeq: a.lastSeq,
-      endedSeq: firstEnd(a),
+      endedSeq: a.firstEnd,
       wave: 0,
       truncated: a.truncated,
     })
