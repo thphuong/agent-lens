@@ -1,6 +1,6 @@
 // Agent cards: a status-coloured rounded box holding the label, the status,
-// the current tool, the tool and token counts, and for main and workflow
-// cards the model. Too small to read, a card becomes a solid status block.
+// the current tool, the tokens consumed with the cache share, the context
+// size (not on workflow cards), and for main and workflow cards the model. Too small to read, a card becomes a solid status block.
 
 import type { ViewAgent } from '../../types'
 import type { Chip } from './chips'
@@ -13,6 +13,14 @@ export const MIN_TEXT_CARD = { w: 12, h: 3 }
 
 export const formatTokens = (n: number): string =>
   n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+
+/** The share of input served from the prompt cache, as `87%`; undefined before any input. */
+export const cacheShare = (cacheRead: number, inputAll: number): string | undefined =>
+  inputAll > 0 ? `${Math.round((cacheRead / inputAll) * 100)}%` : undefined
+
+/** The first of `options` that fits `cells`, else the last. */
+export const fitting = (options: readonly string[], cells: number): string =>
+  options.find(o => o.length <= cells) ?? options.at(-1)!
 
 export type CardLook = {
   /** Border colour override (hover, selection, pulse). */
@@ -38,8 +46,12 @@ export const drawCard = (g: Grid, a: ViewAgent, x: number, y: number, w: number,
     [a.label, TEXT],
     [`${STATUS_GLYPH[a.status]} ${a.status}${a.type && a.type !== a.label ? ` · ${a.type}` : ''}`, status],
     [a.tool ? `⚒ ${a.tool}` : '', a.tool ? TEXT : MUTED],
-    [`×${a.tools}  ${formatTokens(a.tokens)} tok`, MUTED],
   ]
+  // A narrow card drops the cache share first.
+  const tok = `${formatTokens(a.tok)} tok`
+  const share = cacheShare(a.cacheRead, a.inputAll)
+  rows.push([fitting(share ? [`${tok} · ${share}`, tok] : [tok], inner), MUTED])
+  if (a.kind !== 'group') rows.push([`${formatTokens(a.ctx)} ctx`, MUTED])
   if (a.kind !== 'sub' && a.model) rows.push([a.model, MUTED])
   for (let r = 0; r < rows.length && r < h - 2; r++) {
     const [s, color] = rows[r]!

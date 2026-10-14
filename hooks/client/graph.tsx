@@ -144,8 +144,12 @@ const Graph: ClientModule<Props, S> = (props, surface) => {
     surface.onKey(e => onKey(it, e))
   }
   const t = props.view.timeline
-  // A seek, or scrubbing while paused, adopts what is shown as seen.
-  if (t.transport === 'paused' || t.transport === 'history' || t.playhead < live.playhead) live.pres.adoptBaseline(props.view.seq)
+  // A seek, or scrubbing while paused, adopts what is shown as seen. So does
+  // imported history renumbering the log, which also changes arrival order:
+  // the cards are laid out again in it.
+  const isRenumbered = props.view.renumbered !== live.props.view.renumbered
+  if (isRenumbered) live.relayoutSeq = -1
+  if (isRenumbered || t.transport === 'paused' || t.transport === 'history' || t.playhead < live.playhead) live.pres.adoptBaseline(props.view.seq)
   live.playhead = t.playhead
   if (props.details?.agent !== live.props.details?.agent) live.detailScroll = 0
   live.props = props

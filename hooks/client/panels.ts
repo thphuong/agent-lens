@@ -1,7 +1,7 @@
 // The details panel, the info overlay and the help overlay.
 
 import type { Details, Info } from '../../types'
-import { formatTokens } from './cards'
+import { cacheShare, formatTokens } from './cards'
 import type { Grid } from './grid'
 import type { Rect } from './layout'
 import { AMBER, ERR, FRAME, GREY, MUTED, OK, STATUS_COLOR, STATUS_GLYPH, TEXT } from './palette'
@@ -39,7 +39,10 @@ export const detailLines = (d: Details, now = Date.now()): Line[] => {
   if (d.model) lines.push({ text: d.model, color: MUTED })
   if (d.prompt) lines.push({ text: `“${d.prompt}”`, color: GREY[3] })
   const span = d.start !== undefined && d.end !== undefined ? `  ${duration(d.end - d.start)}` : ''
-  lines.push({ text: `${formatTokens(d.tokens)} tok  #${d.spawnedSeq}${d.endedSeq !== undefined ? `–#${d.endedSeq}` : ''}${span}`, color: MUTED })
+  const share = cacheShare(d.cacheRead, d.inputAll)
+  const ctx = d.ctx > 0 ? ` · ${formatTokens(d.ctx)} ctx` : ''
+  lines.push({ text: `${formatTokens(d.tok)} tok${ctx}${share ? ` · ${share} cache` : ''}`, color: MUTED })
+  lines.push({ text: `#${d.spawnedSeq}${d.endedSeq !== undefined ? `–#${d.endedSeq}` : ''}${span}`, color: MUTED })
   for (const era of d.eras) {
     lines.push({ text: '', color: TEXT })
     lines.push({ text: `◆ ${era.prompt}`, color: AMBER })
@@ -82,7 +85,9 @@ export const drawInfo = (g: Grid, rect: Rect, info: Info): void => {
     ['agents', String(info.agents)],
     ['tool calls', String(info.tools)],
     ['edits', String(info.edits)],
-    ['tokens', formatTokens(info.tokens)],
+    ['context', formatTokens(info.ctx)],
+    ['tokens', formatTokens(info.tok)],
+    ['cache', cacheShare(info.cacheRead, info.inputAll) ?? '—'],
     ['pacing', info.compress ? 'compressed gaps' : 'faithful'],
     ['last prompt', info.lastPrompt ?? '—'],
   ]

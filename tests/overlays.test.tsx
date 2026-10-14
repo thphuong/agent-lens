@@ -77,7 +77,7 @@ describe('status bar', () => {
 
   test('the total counts each agent’s tokens once, not again through its group', () => {
     const props = referenceProps()
-    const own = props.view.agents.filter(a => a.kind !== 'group').reduce((s, a) => s + a.tokens, 0)
+    const own = props.view.agents.filter(a => a.kind !== 'group').reduce((s, a) => s + a.tok, 0)
     const g = new Grid(120, 1)
     const buttons = drawStatus(g, 0, props.view, { camera: 'follow' })
     const line = g.ch.join('')

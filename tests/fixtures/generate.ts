@@ -3,7 +3,7 @@
 
 import type { AgentSpawnInput, AgentSpawnResult, ToolCallResult, TurnCompleteInput } from 'claude-code'
 
-import { agentSpawned, promptSubmitted, toolEnded, toolStarted, turnCompleted, turnStarted } from '../../hooks/ingest'
+import { agentSpawned, promptSubmitted, toolEnded, toolStarted, turnCompleted, turnStarted, usageStep } from '../../hooks/ingest'
 import { MAIN, type Fact, type NewFact } from '../../hooks/model/facts'
 
 /** A small deterministic PRNG (mulberry32). */
@@ -34,6 +34,8 @@ const spawnInput = (over: Partial<AgentSpawnInput>): AgentSpawnInput =>
     ...over,
   }) as AgentSpawnInput
 
+const USAGE = { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, model: 'model-a' }
+
 const turnDone = (agentId: string | undefined, turnId: string, reason: TurnCompleteInput['reason'] = 'answer') =>
   ({
     answer: '',
@@ -42,7 +44,7 @@ const turnDone = (agentId: string | undefined, turnId: string, reason: TurnCompl
     turnId,
     agentId,
     reason,
-    usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, model: 'model-a' },
+    usage: USAGE,
   }) as unknown as TurnCompleteInput
 
 /** A session builder that records facts as the hooks would, with a fake clock. */
@@ -95,8 +97,16 @@ export class Session {
     this.facts.push(...turnStarted({ text: '', turnId: this.id('turn'), agentId }, this.tick()))
   }
 
+  /** One model call's usage, as `turn.step` reports it. */
+  step(agentId: string | undefined, turnId: string, index: number, usage: Partial<typeof USAGE> = {}) {
+    this.facts.push(...usageStep({ turnId, index, agentId }, { ...USAGE, ...usage }, this.tick()))
+  }
+
+  /** Ends a turn of one model call. */
   finish(agentId: string | undefined, reason: TurnCompleteInput['reason'] = 'answer') {
-    this.facts.push(...turnCompleted(turnDone(agentId, this.id('turn'), reason), this.tick()))
+    const turnId = this.id('turn')
+    this.step(agentId, turnId, 0)
+    this.facts.push(...turnCompleted(turnDone(agentId, turnId, reason), this.tick()))
   }
 
   /** The facts numbered in arrival order, as the log would hold them. */

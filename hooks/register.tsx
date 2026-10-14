@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { Props, UiState } from '../types'
 import { FaultGate } from './fault-gate'
 import { FRAME_MS } from './frame'
-import { agentSpawned, backfill, promptSubmitted, toolEnded, toolStarted, turnCompleted, turnStarted } from './ingest'
+import { agentSpawned, backfill, promptSubmitted, toolEnded, toolStarted, turnCompleted, turnStarted, usageStep } from './ingest'
 import { applyIntents, parseIntents, wheelTick } from './intents'
 import { MAIN, type NewFact } from './model/facts'
 import { derive } from './model/fold'
@@ -12,6 +12,7 @@ import { Timeline } from './model/timeline'
 import { FactLog, type LogPort } from './persist'
 import { buildProps, detailAgent } from './props'
 import { cellText } from './text'
+import { importTranscript, type FilePort } from './transcript-io'
 import { EMPTY_UI } from './uistate'
 
 const PANE = 'viz'
@@ -38,6 +39,30 @@ const portFor = ($: EngineInterface): LogPort => ({
   after: (ms, fn) => void $.clock.after(ms, fn),
 })
 
+const filesFor = ($: EngineInterface): FilePort => ({
+  list: path => $.fs.list(path),
+  exists: path => $.fs.exists(path),
+  size: async path => (await $.fs.stat(path)).size,
+  read: path => $.fs.read(path),
+  // `$.fs.read` stops at 4 MiB and `$.process.run` cuts its output there, so a
+  // larger file is streamed. Without `cat` (Windows) the read fails, and the
+  // import falls back to the message history.
+  stream: async function* (path) {
+    const child = $.process.spawn({ argv: ['cat', path] })
+    let piece = await child.next()
+    for (; !piece.done; piece = await child.next()) if (piece.value.stream === 'stdout') yield piece.value.text
+    if (piece.value.code !== 0) throw new Error(`cat ended with ${piece.value.code ?? piece.value.signal}`)
+  },
+})
+
+/** The Claude Code configuration directory, which holds the session transcripts. */
+const configDir = async ($: EngineInterface): Promise<string | undefined> => {
+  const dir = await $.env.get('CLAUDE_CONFIG_DIR')
+  if (dir) return dir.replace(/[\\/]+$/, '')
+  const home = (await $.env.get('HOME')) || (await $.env.get('USERPROFILE'))
+  return home ? `${home.replace(/[\\/]+$/, '')}/.claude` : undefined
+}
+
 const warned = new Set<string>()
 const warn = ($: EngineInterface, kind: string, err: unknown) => {
   if (warned.has(kind)) return
@@ -52,13 +77,14 @@ const enqueue = ($: EngineInterface, kind: string, work: () => Promise<void>) =>
   queue = queue.then(work).catch(err => warn($, kind, err))
 }
 
-const fill = async ($: EngineInterface) => {
+/** Backfills from the message history; its prompts have no turn to dedupe by, so `withPrompts` false leaves them out. */
+const fill = async ($: EngineInterface, withPrompts: boolean) => {
   const facts = await backfill(
     {
       messages: agentId => (agentId === undefined ? $.session.messages() : $.session.messages({ agentId })),
       agents: () => $.agent.list(),
     },
-    !log.facts.some(f => f.kind === 'prompt'),
+    withPrompts && !log.facts.some(f => f.kind === 'prompt'),
   )
   log.append(portFor($), facts)
   changed($)
@@ -70,19 +96,63 @@ const changed = ($: EngineInterface) => {
   $.ui.invalidate('ui.render')
 }
 
-const restart = async ($: EngineInterface, sessionId: string) => {
-  log.reset(portFor($), sessionId)
+/**
+ * Imports the session's history from its transcript, once per log; when the
+ * transcript cannot be found or read, backfills from the message history
+ * instead. Only records dated before the log began recording live are read.
+ */
+const importHistory = async ($: EngineInterface) => {
+  await ensureSession($)
+  if (log.imported) return
+  // A fact observed before the log noted its start still counts as live.
+  let cutoff = log.liveSince
+  for (const f of log.facts) if (f.at !== undefined && f.at < cutoff) cutoff = f.at
+  const dir = await configDir($).catch(() => undefined)
+  const r =
+    dir === undefined
+      ? { reason: 'no home or configuration directory is set' }
+      : await importTranscript(filesFor($), dir, log.sessionId, cutoff).catch((err: unknown) => ({
+          reason: err instanceof Error ? err.message : String(err),
+        }))
+  if ('reason' in r || r.records === 0) {
+    const why = 'reason' in r ? r.reason : 'the transcript holds no messages'
+    $.ui.log(`session-viz: history from the message list, not the transcript: ${why}`, { to: 'debug' })
+    await fill($, true)
+  } else {
+    if (r.skipped > 0) $.ui.log(`session-viz: skipped ${r.skipped} transcript lines it could not read`, { to: 'debug' })
+    log.merge(portFor($), r.facts)
+    changed($)
+  }
+  log.markImported(portFor($))
+}
+
+/** Starts the log over for `sessionId`, live from `since` (the earliest event waiting to be logged, else now). */
+const restart = async ($: EngineInterface, sessionId: string, since = Date.now()) => {
+  // A log the pane had imported into is followed by an import of the next session's.
+  const wasImported = log.imported
+  log.reset(portFor($), sessionId, Math.min(since, Date.now()))
   prompts.clear()
   timeline.goLive()
   await update($, uiAtom, () => EMPTY_UI)
   log.append(portFor($), [{ kind: 'agent', agent: MAIN, agentKind: 'main' }])
-  await fill($)
+  changed($)
+  if (wasImported) await importHistory($)
 }
 
 const load = async ($: EngineInterface) => {
-  await log.load(portFor($), await $.session.id())
+  await log.load(portFor($), await $.session.id(), Date.now())
   if (log.facts.length === 0) log.append(portFor($), [{ kind: 'agent', agent: MAIN, agentKind: 'main' }])
-  await fill($)
+  changed($)
+  // After a reload of an imported log, what happened while the module was
+  // down is past the cutoff and was not seen live: the message history fills
+  // those gaps, prompts aside.
+  if (log.imported) await fill($, false)
+}
+
+/** Starts the log over when the session id moved on (a /clear or resume seen first through an event). */
+const ensureSession = async ($: EngineInterface, since?: number) => {
+  const sessionId = await $.session.id()
+  if (sessionId !== log.sessionId) await restart($, sessionId, since)
 }
 
 /** A /clear or resume: wait for the new session id, then start the log over. */
@@ -97,8 +167,8 @@ const reopen = async ($: EngineInterface, ended: string) => {
 
 /** Appends facts once the log is known to belong to the current session. */
 const append = async ($: EngineInterface, facts: NewFact[]) => {
-  const sessionId = await $.session.id()
-  if (sessionId !== log.sessionId) await restart($, sessionId)
+  // These facts belong to the new log, so its import must stop before them.
+  await ensureSession($, Math.min(...facts.map(f => f.at ?? Number.POSITIVE_INFINITY)))
   if (log.append(portFor($), facts).length > 0) changed($)
 }
 
@@ -139,7 +209,7 @@ const fetchPrompt = async ($: EngineInterface, agent: string) => {
 const propsFor = ($: EngineInterface, ui: UiState): Props => {
   const agent = detailAgent(ui, derive(timeline.model()))
   if (agent !== undefined && !prompts.has(agent)) void fetchPrompt($, agent).catch(err => warn($, 'details', err))
-  return buildProps({ timeline, ui, now: Date.now(), prompts })
+  return buildProps({ timeline, ui, now: Date.now(), prompts, renumbered: log.renumbered })
 }
 
 /** Runs a translator and queues its facts; a translator that throws is logged once per kind. */
@@ -188,6 +258,17 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // One model call's usage. A stream hook must be a generator; it passes every
+  // chunk through and returns the result unchanged.
+  on('turn.step', async function* ($, e, next) {
+    const r = yield* next(e)
+    if (r.usage) {
+      const usage = r.usage
+      ingest($, 'turn.step', () => usageStep(e, usage, Date.now()))
+    }
+    return r
+  })
+
   on('turn.complete', async ($, e, next) => {
     const r = await next(e)
     ingest($, 'turn.complete', () => turnCompleted(e, Date.now()))
@@ -209,6 +290,7 @@ export const register: Register = on => {
 
   on('command.run', { command: 'viz' }, async $ => {
     if (faults.reset()) $.ui.invalidate('ui.render')
+    if (!log.imported) enqueue($, 'import', () => importHistory($))
     const opened = await $.ui.open({ id: PANE, title: 'session graph' })
     return { text: opened.isPlaced ? 'Session graph opened.' : 'Session graph is waiting for room.' }
   })

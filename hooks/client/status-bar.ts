@@ -1,8 +1,9 @@
-// The status bar: the transport badge, the agent count and token total, the camera mode and layout reset buttons, and a truncation note
-// when history was cut.
+// The status bar: the transport badge, the agent count, the tokens consumed,
+// main's context size and the cache share, the camera mode and layout reset
+// buttons, and a truncation note when history was cut.
 
 import type { CameraMode, Transport, ViewModel } from '../../types'
-import { formatTokens } from './cards'
+import { cacheShare, fitting, formatTokens } from './cards'
 import type { Grid } from './grid'
 import type { Rect } from './layout'
 import { AMBER, ERR, GREY, MUTED, OK, TEXT } from './palette'
@@ -32,9 +33,17 @@ export const drawStatus = (g: Grid, y: number, view: ViewModel, extras: StatusEx
   const text = t.transport === 'live' && extras.isDotLit === false ? badge.text.replace('●', '○') : badge.text
   x += g.text(x, y, text, badge.color) + 2
   const agents = view.agents.filter(a => a.kind === 'sub').length
-  // A group's total already includes its children's.
-  const tokens = view.agents.reduce((s, a) => s + (a.kind === 'group' ? 0 : a.tokens), 0)
-  x += g.text(x, y, `${agents} agents · ${formatTokens(tokens)} tok`, TEXT) + 2
+  // A group's totals already include its children's.
+  const own = view.agents.filter(a => a.kind !== 'group')
+  const tok = `${agents} agents · ${formatTokens(own.reduce((s, a) => s + a.tok, 0))} tok`
+  const ctx = `${tok} · ${formatTokens(view.agents.find(a => a.kind === 'main')?.ctx ?? 0)} ctx`
+  const share = cacheShare(
+    own.reduce((s, a) => s + a.cacheRead, 0),
+    own.reduce((s, a) => s + a.inputAll, 0),
+  )
+  // Room left after the buttons: `⌖ overview` and `↺ layout` with their gaps.
+  const room = g.w - x - 26
+  x += g.text(x, y, fitting(share ? [`${ctx} · ${share} cache`, ctx, tok] : [ctx, tok], room), TEXT) + 2
   const camera = { x, y, w: g.text(x, y, `⌖ ${extras.camera}`, MUTED), h: 1 }
   x += camera.w + 2
   const reset = { x, y, w: g.text(x, y, '↺ layout', MUTED), h: 1 }

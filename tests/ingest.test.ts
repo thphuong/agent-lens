@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { SessionMessage } from 'claude-code'
 
-import { agentSpawned, backfill, HISTORY_ROWS, promptLine, promptSubmitted, toolEnded, toolStarted, turnCompleted, turnStarted } from '../hooks/ingest'
+import { agentSpawned, backfill, HISTORY_ROWS, promptLine, promptSubmitted, toolEnded, toolStarted, turnCompleted, turnStarted, usageStep } from '../hooks/ingest'
 import type { Fact, NewFact } from '../hooks/model/facts'
 import { FactLog, type LogPort } from '../hooks/persist'
 import type { LogMeta } from '../types'
@@ -65,15 +65,24 @@ describe('translators', () => {
     expect(agentSpawned({ description: 'd', subagentType: 's' } as never, { deny: 'x' }, 1)).toEqual([])
   })
 
-  test('turns: a subagent start reopens, a completion ends it with tokens', () => {
+  test('turns: a subagent start reopens, a completion ends it and keeps its model', () => {
     expect(turnStarted({ text: '', turnId: 't1', agentId: 'a' }, 1)).toEqual([{ kind: 'reopened', at: 1, agent: 'a', turn: 't1' }])
     expect(turnStarted({ text: '', turnId: 't1' }, 1)).toEqual([{ kind: 'reopened', at: 1, agent: 'main', turn: 't1' }])
     const usage = { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4, model: 'm' }
     const done = turnCompleted({ turnId: 't', agentId: 'a', reason: 'aborted', usage } as never, 2)
-    expect(done).toContainEqual(expect.objectContaining({ kind: 'tokens', n: 10 }))
+    expect(done).toContainEqual(expect.objectContaining({ kind: 'model', model: 'm' }))
     expect(done).toContainEqual(expect.objectContaining({ kind: 'ended', status: 'stopped' }))
+    // The turn's usage sums its steps', which are counted on their own.
+    expect(done.some(f => f.kind === 'tokens' || f.kind === 'usage')).toBe(false)
     const main = turnCompleted({ turnId: 't', reason: 'answer', usage } as never, 2)
     expect(main).toContainEqual(expect.objectContaining({ kind: 'ended', agent: 'main', status: 'done' }))
+  })
+
+  test('a step gives one usage fact keyed by its turn and position', () => {
+    const usage = { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4, model: 'm' }
+    expect(usageStep({ turnId: 't', index: 2, agentId: 'a' }, usage, 5)).toEqual([
+      { kind: 'usage', at: 5, agent: 'a', key: 'step:t:2', input: 1, output: 2, cacheRead: 3, cacheWrite: 4 },
+    ])
   })
 
   test('prompts keep a sanitised first line, commands their name only', () => {
@@ -86,7 +95,7 @@ describe('translators', () => {
   })
 
   test('the reference session holds only allowlisted fields', () => {
-    const allowed = new Set(['kind', 'at', 'agent', 'agentKind', 'parent', 'text', 'type', 'model', 'line', 'turn', 'call', 'tool', 'outcome', 'n', 'status'])
+    const allowed = new Set(['kind', 'at', 'agent', 'agentKind', 'parent', 'text', 'type', 'model', 'line', 'turn', 'call', 'tool', 'outcome', 'status', 'key', 'input', 'output', 'cacheRead', 'cacheWrite'])
     for (const f of reference().facts) for (const k of Object.keys(f)) expect(allowed.has(k)).toBe(true)
   })
 })
@@ -114,33 +123,55 @@ describe('fact log', () => {
     expect(log.append(port, [{ kind: 'toolStart', agent: 'main', call: 'c', tool: 'Read' }])).toEqual([])
   })
 
-  test('a reload restores the log with tokens, parents and groups intact', async () => {
+  test('a reload restores the log with usage, parents and groups intact', async () => {
     const { port } = memoryPort()
     const log = new FactLog()
-    await log.load(port, 's1')
+    await log.load(port, 's1', 0)
     log.append(port, reference().facts)
     await log.flush(port)
     const again = new FactLog()
-    await again.load(port, 's1')
+    await again.load(port, 's1', 0)
     expect(again.facts).toEqual(log.facts)
-    expect(again.facts.some(f => f.kind === 'tokens')).toBe(true)
+    expect(again.facts.some(f => f.kind === 'usage')).toBe(true)
     expect(again.facts.some(f => f.kind === 'spawn' && f.parent === 'wf:run1')).toBe(true)
     expect(again.append(port, [{ kind: 'truncated', agent: 'x' }])[0]?.seq).toBe(log.facts.length + 1)
+  })
+
+  test('a reload keeps when the log began and whether it was imported', async () => {
+    const { port } = memoryPort()
+    const log = new FactLog()
+    await log.load(port, 's1', 1000)
+    expect(log).toMatchObject({ liveSince: 1000, imported: false })
+    log.markImported(port)
+    await log.flush(port)
+    const again = new FactLog()
+    await again.load(port, 's1', 9000)
+    expect(again).toMatchObject({ liveSince: 1000, imported: true })
+    again.reset(port, 's2', 9000)
+    expect(again).toMatchObject({ liveSince: 9000, imported: false })
+  })
+
+  test('a log kept before it recorded its start loads as not imported, live from now', async () => {
+    const { store, port } = memoryPort()
+    store.meta = { sessionId: 's1', chunks: 0, seq: 0 }
+    const log = new FactLog()
+    await log.load(port, 's1', 5000)
+    expect(log).toMatchObject({ liveSince: 5000, imported: false })
   })
 
   test('a log kept for another session is dropped, and reset empties it', async () => {
     const { port } = memoryPort()
     const log = new FactLog()
-    await log.load(port, 's1')
+    await log.load(port, 's1', 0)
     log.append(port, reference().facts)
     await log.flush(port)
     const other = new FactLog()
-    await other.load(port, 's2')
+    await other.load(port, 's2', 0)
     expect(other.facts).toEqual([])
-    log.reset(port, 's3')
+    log.reset(port, 's3', 0)
     await log.flush(port)
     const after = new FactLog()
-    await after.load(port, 's3')
+    await after.load(port, 's3', 0)
     expect(after.facts).toEqual([])
   })
 })
@@ -187,6 +218,59 @@ describe('hooks', () => {
     })
     const got = await $.tool.call({ tool: 'Bash', command: 'ls' })
     expect(got).toEqual(answer)
+  })
+
+  test('a turn.step observer passes every chunk and the result through, even when ingest fails', async ($, on) => {
+    const result = {
+      turnId: 't',
+      index: 0,
+      answer: 'hi',
+      toolUses: [],
+      stopReason: 'end_turn',
+      usage: { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4, model: 'm' },
+    }
+    on('turn.step', async function* () {
+      yield { kind: 'text', index: 0, text: 'h' } as never
+      yield { kind: 'text', index: 0, text: 'i' } as never
+      return result as never
+    })
+    on('session.id', () => {
+      throw new Error('no id')
+    })
+    const stream = $.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1 })
+    const chunks: unknown[] = []
+    // `for await` drops a generator's return value; step by hand to read it.
+    let r = await stream.next()
+    for (; !r.done; r = await stream.next()) chunks.push(r.value)
+    expect(chunks).toHaveLength(2)
+    expect(r.value).toEqual(result)
+  })
+
+  test('a turn.step result with usage is logged as one usage fact', async ($, on) => {
+    const clock = mock.clock(on)
+    const writes: { key: string; value: unknown }[] = []
+    on('state.set', ($, e, next) => {
+      writes.push({ key: e.key, value: e.value })
+      return next(e)
+    })
+    on('session.id', () => ({ value: 's1' }))
+    on('session.messages', () => ({ value: [] }))
+    on('agent.list', () => ({ value: [] }))
+    on('turn.step', async function* () {
+      return {
+        turnId: 't',
+        index: 1,
+        answer: '',
+        toolUses: [],
+        stopReason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4, model: 'm' },
+      } as never
+    })
+    const stream = $.turn.step({ turnId: 't', index: 1, model: 'm', messageCount: 1 })
+    while (!(await stream.next()).done);
+    await clock.advance(300)
+    const chunk = writes.filter(w => w.key === 'logChunk').at(-1)?.value as Fact[]
+    expect(chunk.filter(f => f.kind === 'usage')).toEqual([expect.objectContaining({ agent: 'main', key: 'step:t:1', cacheWrite: 4 })])
   })
 
   test('session.end with clear starts the log over for the new session', async ($, on) => {

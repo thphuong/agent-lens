@@ -21,12 +21,25 @@ The mod runs as two modules with different lifetimes:
 
 These rules hold the design together. Break one and a known failure returns:
 
-1. **The log lives in `$.state`, not module memory.** Module memory dies on a
-   hot reload or a worker respawn, and the message history cannot rebuild
-   the log, because it has no timestamps, keeps only the newest 4096 rows
-   and has no workflow agents. [`hooks/persist.ts`](../hooks/persist.ts)
-   mirrors the log to `$.state` in chunks. Backfill from `$.session.messages`
-   only fills gaps; it never replaces the log.
+1. **The log lives in `$.state`; history comes from the transcript.**
+   Module memory dies on a hot reload or a worker respawn, so
+   [`hooks/persist.ts`](../hooks/persist.ts) mirrors the log to `$.state`
+   in chunks. `$.state` itself is lost when Claude Code restarts. The first
+   `/viz` for a log therefore imports the session's transcript files
+   ([`hooks/transcript.ts`](../hooks/transcript.ts),
+   [`hooks/transcript-io.ts`](../hooks/transcript-io.ts)), keeping only
+   records dated before the log began recording live (`liveSince` in the
+   log meta), so nothing is counted twice. The import renumbers the log in
+   time order, because the fold and the layout read seq as arrival order;
+   the Client then treats everything shown as seen and lays the cards out
+   again.
+   The import keeps at most 15,000 facts, so the log stays well inside the
+   4 MiB `$.state` holds. When the transcript cannot be found or read,
+   backfill from `$.session.messages` runs instead. After a hot reload of
+   an imported log, backfill without prompts fills in what the module
+   missed while it was down. It has no times or token counts,
+   keeps only the newest 4096 rows and has no workflow agents, so it is
+   only a fallback.
 2. **Interface state lives in the hooks module.** The selection, the open
    overlay, the camera mode and the dragged card positions sit in `$.state`
    ([`hooks/uistate.ts`](../hooks/uistate.ts)), so a remount or a reload
@@ -55,8 +68,11 @@ These rules hold the design together. Break one and a known failure returns:
 ```mermaid
 flowchart LR
   EV["engine events"] --> IN["ingest → facts"]
-  BF["$.session.messages backfill"] --> IN
-  IN --> LOG["fact log ($.state)"] --> FOLD["fold → SessionModel"] --> TL["timeline playhead"] --> PROPS["buildProps"]
+  TR["transcript files, on the first /viz"] --> IMP["transcript reader → facts before liveSince"]
+  BF["$.session.messages backfill, if no transcript"] --> IN
+  IN --> LOG["fact log ($.state)"]
+  IMP -- "merged, renumbered in time order" --> LOG
+  LOG --> FOLD["fold → SessionModel"] --> TL["timeline playhead"] --> PROPS["buildProps"]
   UI["ui state ($.state)"] --> PROPS
   PROPS --> CL["Client: layout · camera · paint"]
   CL -- "one batched post per frame" --> UI
@@ -73,12 +89,13 @@ the Client applies each tick once.
 | --- | --- |
 | Registration, lifecycle, `/viz`, pane placement, fault handling | [`hooks/register.tsx`](../hooks/register.tsx), [`hooks/fault-gate.ts`](../hooks/fault-gate.ts) |
 | Engine events to facts | [`hooks/ingest.ts`](../hooks/ingest.ts), vocabulary in [`hooks/model/facts.ts`](../hooks/model/facts.ts) |
+| Transcript files to facts | [`hooks/transcript.ts`](../hooks/transcript.ts) (pure), [`hooks/transcript-io.ts`](../hooks/transcript-io.ts) (finding and reading the files) |
 | Facts to model | [`hooks/model/fold.ts`](../hooks/model/fold.ts), [`hooks/model/runs.ts`](../hooks/model/runs.ts) |
 | Replay pacing and seeking | [`hooks/model/timeline.ts`](../hooks/model/timeline.ts) |
 | Shared frame interval | [`hooks/frame.ts`](../hooks/frame.ts) |
 | Drawing | [`hooks/client/graph.tsx`](../hooks/client/graph.tsx) is the entry; each other file in that folder owns one part of the picture |
 | Engine API types | Generated into `.claude-plugin/types/` when the engine loads the mod (git-ignored); [`types/index.d.ts`](../types/index.d.ts) holds the state contract the two modules share |
-| Tests and synthetic fixture | [`tests/`](../tests), [`tests/fixtures/generate.ts`](../tests/fixtures/generate.ts) |
+| Tests and synthetic fixtures | [`tests/`](../tests), [`tests/fixtures/generate.ts`](../tests/fixtures/generate.ts) (events), [`tests/fixtures/transcript.ts`](../tests/fixtures/transcript.ts) (transcript files) |
 
 ## Platform limits the design respects
 
@@ -104,6 +121,22 @@ them only after measuring again.
   fullscreen view. The inline fallback draws a compact layout.
 - **`session.start` does not fire for `/clear`.** The mod resets on
   `session.end` with reason `clear` or `resume`.
+- **`$.state` survives hot reloads, not a restart.** History after a
+  restart comes from the transcript import.
+- **`$.fs.read` refuses files over 4 MiB, and `$.process.run` cuts stdout
+  at 4 MiB.** Larger transcripts (35.6 MB seen) are streamed through
+  `$.process.spawn(['cat', path])`; with no `cat`, as on Windows, the
+  import falls back to backfill.
+- **`turn.step` is a streaming event.** Its hook must be an
+  `async function*` that passes every chunk through; the engine refuses a
+  plain function. Each step reports one model call's usage, and
+  `turn.complete` reports the sum of the turn's steps, so only steps are
+  counted. A compaction's summarizer fires no `turn.step`, so its usage is
+  not counted.
+- **Another plugin can answer `session.compact` and classic hooks without
+  passing them on.** The mod relies on neither: it finds the transcript by
+  session id under the configuration directory instead of reading
+  `transcript_path`.
 - **`$.agent.list()` drops agents that have ended and never lists workflow
   agents.** Workflow agents are grouped by `workflow.runId`, and their status
   comes from `turn.complete`.
@@ -117,7 +150,8 @@ them only after measuring again.
 | A fact log folded in place, with a full refold on every seek | Copying the model per fact, or keeping a ladder of snapshots | The copying fold was quadratic. A refold is cheap enough that the snapshot ladder was never needed; the timeline tests benchmark seeking. |
 | A fold that depends only on the set of facts | A fold that depends on arrival order | Backfill and live events arrive interleaved and duplicated. Keyed stores plus seq-wins make the order irrelevant, and a shuffle test checks it. |
 | Placing cards in arrival order, never moving an existing card | Laying the graph out again on every change | A card moving under the pointer breaks dragging and reading. `r` lays the graph out again on request. |
-| Live engine events, with backfill from message history | Tailing transcript files on disk | The engine already delivers events with agent ids. Backfill covers resume and reload. |
+| Live engine events, plus a one-time transcript import when `/viz` opens | Tailing transcript files on disk; backfill from message history alone | The engine delivers events with agent ids, so live data needs no tailing. Message history loses everything a compaction replaced and has no times, tokens or workflow agents; the transcript keeps them, and a 35.6 MB one streams and parses in about 0.4 s. |
+| One usage fact per model call, from `turn.step` | A turn's summed usage from `turn.complete` | ctx must be the latest call's context, not a turn's sum, and tok must count every call once. |
 | Synthetic test fixtures | Fixtures captured from real sessions | Real sessions carry personal paths and prompt text. |
 
 ## Non-goals

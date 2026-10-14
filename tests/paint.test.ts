@@ -1,9 +1,54 @@
 import { describe, expect, test } from 'claude-code/testing'
 
+import { drawCard } from '../hooks/client/cards'
 import { Grid } from '../hooks/client/grid'
+import { CARD } from '../hooks/client/layout'
 import { paintRuns } from '../hooks/client/paint'
 import { rgbToHex } from '../hooks/client/palette'
 import { cellWidth } from '../hooks/text'
+import type { ViewAgent } from '../types'
+
+const card = (kind: ViewAgent['kind'], w = CARD[kind].w) => {
+  const a: ViewAgent = {
+    id: 'a',
+    kind,
+    label: 'scan again',
+    type: 'Explore',
+    status: 'done',
+    tool: 'Bash',
+    tools: 7,
+    ctx: 42_100,
+    tok: 1_200_000,
+    cacheRead: 870,
+    inputAll: 1000,
+    model: 'model-a',
+    lastSeq: 1,
+  }
+  const g = new Grid(w, CARD[kind].h)
+  drawCard(g, a, 0, 0, w, CARD[kind].h)
+  return Array.from({ length: g.h }, (_, y) => g.ch.slice(y * g.w, (y + 1) * g.w).join(''))
+}
+
+describe('cards', () => {
+  test('a sub card shows tokens with the cache share, then the context, and no call count', () => {
+    const rows = card('sub')
+    expect(rows[4]).toContain('1.2M tok · 87%')
+    expect(rows[5]).toContain('42.1k ctx')
+    expect(rows.join('\n')).not.toContain('×')
+  })
+
+  test('a narrow card drops the cache share first', () => {
+    const rows = card('sub', 16)
+    expect(rows[4]).toContain('1.2M tok')
+    expect(rows[4]).not.toContain('%')
+  })
+
+  test('a group card has no context row', () => {
+    const rows = card('group')
+    expect(rows.join('\n')).not.toContain('ctx')
+    expect(rows[5]).toContain('model-a')
+  })
+})
 
 describe('paint', () => {
   test('a 110×44 per-cell gradient degrades to fit under 100,000 characters', () => {

@@ -24,9 +24,14 @@ export type AgentState = {
   lifecycle?: Stamped<Lifecycle>
   /** Seqs of this agent's `ended` facts, which close calls left open before them. */
   endedSeqs: number[]
+  /** One entry per model call, by its usage key. */
+  usage: Map<string, Usage>
+  /** A legacy turn total, used only while `usage` is empty. */
   tokens?: Stamped<number>
   truncated: boolean
 }
+
+export type Usage = { seq: number; at?: number; input: number; output: number; cacheRead: number; cacheWrite: number }
 
 export type Lifecycle =
   | { kind: 'spawn' }
@@ -63,7 +68,7 @@ export const createModel = (): SessionModel => ({ agents: new Map(), calls: new 
 const agentOf = (m: SessionModel, id: string, seq: number): AgentState => {
   let a = m.agents.get(id)
   if (!a) {
-    a = { id, firstSeq: seq, lastSeq: seq, endedSeqs: [], truncated: false }
+    a = { id, firstSeq: seq, lastSeq: seq, endedSeqs: [], usage: new Map(), truncated: false }
     m.agents.set(id, a)
   }
   a.firstSeq = Math.min(a.firstSeq, seq)
@@ -121,6 +126,9 @@ export const apply = (m: SessionModel, f: Fact): void => {
       c.outcome = f.outcome
       break
     }
+    case 'usage':
+      a.usage.set(f.key, { seq: f.seq, at: f.at, input: f.input, output: f.output, cacheRead: f.cacheRead, cacheWrite: f.cacheWrite })
+      break
     case 'tokens':
       a.tokens = newer(a.tokens, f.seq, f.n)
       break
@@ -185,10 +193,40 @@ export type DerivedAgent = {
   /** The tool of the newest call still in flight. */
   tool?: string
   tools: number
-  tokens: number
+  /** Context size of the latest model call: its input, cache reads and cache writes. 0 for a group. */
+  ctx: number
+  /** Tokens consumed: every call's input, output, cache reads and writes. */
+  tok: number
+  cacheRead: number
+  /** Input, cache reads and cache writes summed: what cache reads are a share of. */
+  inputAll: number
   firstSeq: number
   lastSeq: number
   truncated: boolean
+}
+
+/** The newer of two calls: a dated one beats an undated one, then the later time, then the higher seq. */
+const later = (x: Usage, y: Usage): boolean => {
+  if ((x.at === undefined) !== (y.at === undefined)) return x.at !== undefined
+  if (x.at !== y.at) return x.at! > y.at!
+  return x.seq > y.seq
+}
+
+/** An agent's token metrics from its calls; sums, so the arrival order never matters. */
+const metrics = (a: AgentState) => {
+  let tok = 0
+  let cacheRead = 0
+  let inputAll = 0
+  let last: Usage | undefined
+  for (const u of a.usage.values()) {
+    const input = u.input + u.cacheRead + u.cacheWrite
+    tok += input + u.output
+    cacheRead += u.cacheRead
+    inputAll += input
+    if (!last || later(u, last)) last = u
+  }
+  if (a.usage.size === 0) tok = a.tokens?.value ?? 0
+  return { ctx: last ? last.input + last.cacheRead + last.cacheWrite : 0, tok, cacheRead, inputAll }
 }
 
 /**
@@ -201,7 +239,7 @@ export const derive = (m: SessionModel): DerivedAgent[] => {
   for (const a of m.agents.values()) if (a.kind !== undefined) visible.set(a.id, a)
   // Main is always drawn, whether or not its `agent` fact is in the set yet.
   const main = m.agents.get(MAIN)
-  visible.set(MAIN, { ...(main ?? { id: MAIN, firstSeq: 0, lastSeq: 0, endedSeqs: [], truncated: false }), kind: 'main' })
+  visible.set(MAIN, { ...(main ?? { id: MAIN, firstSeq: 0, lastSeq: 0, endedSeqs: [], usage: new Map(), truncated: false }), kind: 'main' })
 
   const counts = new Map<string, { tools: number; open?: Call }>()
   for (const c of m.calls.values()) {
@@ -243,7 +281,7 @@ export const derive = (m: SessionModel): DerivedAgent[] => {
       status,
       tool: n?.open?.tool,
       tools: n?.tools ?? 0,
-      tokens: a.tokens?.value ?? 0,
+      ...metrics(a),
       firstSeq: a.firstSeq,
       lastSeq: a.lastSeq,
       truncated: a.truncated,
@@ -268,7 +306,10 @@ export const derive = (m: SessionModel): DerivedAgent[] => {
     else if (kids.some(k => !TERMINAL.has(k.status))) g.status = 'running'
     else g.status = kids.some(k => k.status === 'failed') ? 'failed' : 'done'
     g.tools = kids.reduce((s, k) => s + k.tools, g.tools)
-    g.tokens = kids.reduce((s, k) => s + k.tokens, g.tokens)
+    g.ctx = 0
+    g.tok = kids.reduce((s, k) => s + k.tok, g.tok)
+    g.cacheRead = kids.reduce((s, k) => s + k.cacheRead, g.cacheRead)
+    g.inputAll = kids.reduce((s, k) => s + k.inputAll, g.inputAll)
     g.lastSeq = kids.reduce((s, k) => Math.max(s, k.lastSeq), g.lastSeq)
   }
   return [...out.values()].sort((x, y) => x.firstSeq - y.firstSeq || (x.id < y.id ? -1 : 1))

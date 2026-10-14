@@ -26,6 +26,8 @@ export type FactBody =
   | { kind: 'prompt'; line: string; turn?: string }
   | { kind: 'toolStart'; call: string; tool: string }
   | { kind: 'toolEnd'; call: string; outcome: Outcome }
+  | { kind: 'usage'; key: string; input: number; output: number; cacheRead: number; cacheWrite: number }
+  /** A turn's summed usage, written by logs older than `usage`; read only for an agent with no `usage` facts. */
   | { kind: 'tokens'; n: number; turn?: string }
   | { kind: 'ended'; status: EndStatus; turn?: string }
   | { kind: 'reopened'; turn?: string }
@@ -46,8 +48,13 @@ export type Fact = FactHead & FactBody
 /** A fact before the log numbers it. */
 export type NewFact = Omit<FactHead, 'seq'> & FactBody
 
-/** Which session the persisted log belongs to, how many chunks it spans, and its last seq. */
-export type LogMeta = { sessionId: string; chunks: number; seq: number }
+/**
+ * Which session the persisted log belongs to, how many chunks it spans, its
+ * last seq, when it began recording live (epoch ms), and whether the
+ * session's history was imported into it. Logs kept before the last two
+ * fields existed lack them.
+ */
+export type LogMeta = { sessionId: string; chunks: number; seq: number; liveSince?: number; imported?: boolean }
 
 /** Which overlay covers the graph. */
 export type Overlay = 'none' | 'help' | 'info'
@@ -87,7 +94,13 @@ export type ViewAgent = {
   status: DisplayStatus
   tool?: string
   tools: number
-  tokens: number
+  /** Context size of the agent's latest model call; 0 for a group. */
+  ctx: number
+  /** Tokens consumed so far: input, output, cache reads and writes, summed over every call. */
+  tok: number
+  /** Input tokens served from the prompt cache, and all input tokens; the Client computes the share. */
+  cacheRead: number
+  inputAll: number
   model?: string
   lastSeq: number
 }
@@ -130,6 +143,8 @@ export type ViewModel = {
   now: number
   /** The highest seq in view: a remount adopts it as its baseline. */
   seq: number
+  /** Bumped each time the log is renumbered by an import, so the Client re-takes its baseline and arrival order. */
+  renumbered: number
 }
 
 export type DetailCall = { tool: string; state: RunState; start?: number; end?: number }
@@ -144,7 +159,10 @@ export type Details = {
   prompt?: string
   /** The newest calls, grouped under the prompt each followed. */
   eras: { prompt: string; calls: DetailCall[] }[]
-  tokens: number
+  ctx: number
+  tok: number
+  cacheRead: number
+  inputAll: number
   spawnedSeq: number
   endedSeq?: number
   start?: number
@@ -157,7 +175,11 @@ export type Info = {
   tools: number
   /** Write, Edit and NotebookEdit calls. */
   edits: number
-  tokens: number
+  /** Main's context size. */
+  ctx: number
+  tok: number
+  cacheRead: number
+  inputAll: number
   lastPrompt?: string
   compress: boolean
 }

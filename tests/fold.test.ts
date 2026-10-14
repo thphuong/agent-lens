@@ -67,7 +67,60 @@ describe('fold', () => {
     expect(children).toHaveLength(3)
     const explorer = [...d.values()].find(a => a.label === 'scan again' || a.label === 'scan files')!
     expect([...d.values()].some(a => a.parent === explorer.id && a.label === 'nested look')).toBe(true)
-    expect(d.get('main')?.tokens).toBe(120)
+    expect(d.get('main')?.tok).toBe(120)
+  })
+})
+
+describe('usage', () => {
+  const step = (seq: number, key: string, at: number | undefined, input: number, cacheRead = 0, agent = 'main'): Fact => ({
+    seq,
+    at,
+    agent,
+    kind: 'usage',
+    key,
+    input,
+    output: 10,
+    cacheRead,
+    cacheWrite: 5,
+  })
+
+  test('ctx is the last call’s context, tok the sum of every call, in any order', () => {
+    const facts: Fact[] = [step(1, 'step:t:0', 100, 1000, 0), step(2, 'step:t:1', 200, 200, 3000)]
+    for (let seed = 0; seed <= 30; seed++) {
+      const main = byId(seed === 0 ? facts : shuffle(facts, seed)).get('main')!
+      expect(main.ctx).toBe(200 + 3000 + 5)
+      expect(main.tok).toBe(1000 + 10 + 5 + 200 + 10 + 3000 + 5)
+      expect(main.cacheRead).toBe(3000)
+      expect(main.inputAll).toBe(1005 + 3205)
+    }
+  })
+
+  test('a dated call is newer than an undated one whatever its seq', () => {
+    const main = byId([step(5, 'req:old', undefined, 9000), step(1, 'step:t:0', 100, 40)]).get('main')!
+    expect(main.ctx).toBe(45)
+  })
+
+  test('a legacy turn total counts only for an agent with no calls', () => {
+    const legacy: Fact = { seq: 1, agent: 'main', kind: 'tokens', n: 777, turn: 't0' }
+    expect(byId([legacy]).get('main')?.tok).toBe(777)
+    expect(byId([legacy, step(2, 'step:t:0', 100, 40)]).get('main')?.tok).toBe(55)
+  })
+
+  test('a group rolls up tok and cache from its children and has no ctx', () => {
+    const facts: Fact[] = [
+      { seq: 1, agent: 'wf:r', kind: 'agent', agentKind: 'group' },
+      { seq: 2, agent: 'a', kind: 'agent', agentKind: 'sub' },
+      { seq: 3, agent: 'a', kind: 'spawn', parent: 'wf:r' },
+      { seq: 4, agent: 'b', kind: 'agent', agentKind: 'sub' },
+      { seq: 5, agent: 'b', kind: 'spawn', parent: 'wf:r' },
+      step(6, 'step:x:0', 100, 100, 900, 'a'),
+      step(7, 'step:y:0', 100, 100, 0, 'b'),
+    ]
+    const group = byId(facts).get('wf:r')!
+    expect(group.ctx).toBe(0)
+    expect(group.tok).toBe(1015 + 115)
+    expect(group.cacheRead).toBe(900)
+    expect(group.inputAll).toBe(1005 + 105)
   })
 })
 

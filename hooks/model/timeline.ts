@@ -25,8 +25,8 @@ export type Transport = 'live' | 'playing' | 'paused' | 'history' | 'idle'
 
 export type Markers = { spawns: number[]; fails: number[]; gaps: number[]; prompts: number[] }
 
-/** Undated facts first in seq order, then dated ones by time. */
-const ordered = (facts: readonly Fact[]): Fact[] =>
+/** Replay order: undated facts first in seq order, then dated ones by time. */
+export const ordered = (facts: readonly Fact[]): Fact[] =>
   [...facts].sort((a, b) => {
     if (a.at === undefined || b.at === undefined) return a.at === undefined ? (b.at === undefined ? a.seq - b.seq : -1) : 1
     return a.at - b.at || a.seq - b.seq

@@ -33,6 +33,8 @@ export const dedupeKey = (f: NewFact): string | undefined => {
       return `toolStart:${f.call}`
     case 'toolEnd':
       return `toolEnd:${f.call}`
+    case 'usage':
+      return `usage:${f.agent}:${f.key}`
     case 'tokens':
       return `tokens:${f.agent}:${f.turn ?? ''}`
     case 'ended':

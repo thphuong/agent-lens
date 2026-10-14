@@ -12,6 +12,8 @@ import type {
   ToolCallResult,
   TurnCompleteInput,
   TurnStartInput,
+  TurnStepInput,
+  TurnUsage,
 } from 'claude-code'
 
 import { groupId, MAIN, type EndStatus, type LiveStatus, type NewFact } from './model/facts'
@@ -32,7 +34,7 @@ export const toolStarted = (e: ToolCallSeen, at: number): NewFact[] => [
 ]
 
 /** A Workflow call's result names its run; the run becomes a group card under the caller. */
-const workflowRun = (agent: string, result: unknown, at?: number): NewFact[] => {
+export const workflowRun = (agent: string, result: unknown, at?: number): NewFact[] => {
   const r = result as { runId?: unknown; workflowName?: unknown } | undefined
   if (typeof r?.runId !== 'string' || r.runId === '') return []
   const id = groupId(r.runId)
@@ -88,15 +90,25 @@ const END: Record<TurnCompleteInput['reason'], EndStatus> = {
   refusal: 'failed',
 }
 
+/** The usage of one model call, keyed by its turn and position so a live step is counted once. */
+export const usageStep = (e: Pick<TurnStepInput, 'turnId' | 'index' | 'agentId'>, u: TurnUsage, at: number): NewFact[] => [
+  {
+    kind: 'usage',
+    at,
+    agent: who(e.agentId),
+    key: `step:${e.turnId}:${e.index}`,
+    input: u.input_tokens,
+    output: u.output_tokens,
+    cacheRead: u.cache_read_input_tokens ?? 0,
+    cacheWrite: u.cache_creation_input_tokens ?? 0,
+  },
+]
+
+/** A turn ending. Its usage is the sum of its steps', which `usageStep` already counted, so only its model is kept. */
 export const turnCompleted = (e: TurnCompleteInput, at: number): NewFact[] => {
   const agent = who(e.agentId)
   const facts: NewFact[] = []
-  const u = e.usage
-  if (u) {
-    const n = u.input_tokens + u.output_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
-    facts.push({ kind: 'tokens', at, agent, n, turn: e.turnId })
-    facts.push({ kind: 'model', at, agent, model: cellText(u.model, LABEL_CELLS) })
-  }
+  if (e.usage) facts.push({ kind: 'model', at, agent, model: cellText(e.usage.model, LABEL_CELLS) })
   facts.push({ kind: 'ended', at, agent, status: END[e.reason], turn: e.turnId })
   return facts
 }

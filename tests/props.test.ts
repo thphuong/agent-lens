@@ -26,6 +26,12 @@ describe('size budget', () => {
     expect(props.details).toBeDefined()
   })
 
+  test('the renumber count reaches the Client', () => {
+    const t = timelineOf(reference())
+    expect(buildProps({ timeline: t, ui: EMPTY_UI, now: 0, prompts: new Map() }).view.renumbered).toBe(0)
+    expect(buildProps({ timeline: t, ui: EMPTY_UI, now: 0, prompts: new Map(), renumbered: 2 }).view.renumbered).toBe(2)
+  })
+
   test('a small session needs no shedding', () => {
     const props = buildProps({ timeline: timelineOf(reference()), ui: EMPTY_UI, now: 0, prompts: new Map() })
     expect(props.degrade).toBe(0)

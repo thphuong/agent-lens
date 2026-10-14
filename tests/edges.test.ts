@@ -13,7 +13,10 @@ const agent = (id: string, parent?: string, kind: ViewAgent['kind'] = 'sub'): Vi
   type: id,
   status: 'done',
   tools: 0,
-  tokens: 0,
+  ctx: 0,
+  tok: 0,
+  cacheRead: 0,
+  inputAll: 0,
   lastSeq: 0,
 })
 
@@ -28,8 +31,8 @@ describe('edges', () => {
     drawScene(g, agents, pos, { x: 0, y: 0, z: 1 })
     const rows = Array.from({ length: g.h }, (_, y) => rowText(g, y))
     // The parent's bottom border carries the junction.
-    expect(rows[6]).toContain('┬')
-    const barY = rows.findIndex((r, i) => i > 6 && r.includes('╭'))
+    expect(rows[7]).toContain('┬')
+    const barY = rows.findIndex((r, i) => i > 7 && r.includes('╭'))
     const bar = rows[barY]!.trim()
     // Main sits over the middle child, so the trunk crosses the bar there.
     expect(bar).toMatch(/^╭─+┼─+╮$/)
@@ -58,7 +61,7 @@ test('an off-centre parent meets the bar from above', () => {
   const g = new Grid(90, 20)
   drawScene(g, agents, pos, { x: 0, y: 0, z: 1 })
   const rows = Array.from({ length: g.h }, (_, y) => rowText(g, y))
-  const bar = rows.find((r, i) => i > 6 && r.includes('╭'))!.trim()
+  const bar = rows.find((r, i) => i > 7 && r.includes('╭'))!.trim()
   expect(bar).toMatch(/^╭─+┴─+╮$/)
 })
 
@@ -68,7 +71,7 @@ test('a child dragged level with its parent stays connected, entered from below'
   const g = new Grid(80, 12)
   drawScene(g, agents, pos, { x: 0, y: 0, z: 1 })
   const rows = Array.from({ length: g.h }, (_, y) => rowText(g, y))
-  // Main's bottom (row 6) and the child's bottom (row 6) both carry a junction.
-  expect((rows[6]!.match(/┬/g) ?? []).length).toBe(2)
-  expect(rows[7]!.trim()).toMatch(/^╰─+╯$/)
+  // Main's bottom (row 7) and the child's bottom (row 7) both carry a junction.
+  expect((rows[7]!.match(/┬/g) ?? []).length).toBe(2)
+  expect(rows[8]!.trim()).toMatch(/^╰─+╯$/)
 })

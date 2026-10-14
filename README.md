@@ -10,6 +10,7 @@ you scrub back through the session or replay it.
  ╭──────────────────╮
  │ main             │
  │ ○ idle           │
+ │                  │
  ╰─────────┬────────╯
            │
            ├────────────────────┬─────────────────────────────────────────────────────────╮
@@ -17,14 +18,15 @@ you scrub back through the session or replay it.
   ╭────────┴───────╮ ╎╭─────────┴────────╮                                      ╎ ╭───────┴───────╮
   │ scan again     │ ╎│ fake-review      │                                      ╎ │ pair          │
   │ ✓ done · explo │ ╎│ ✗ failed · workf │                                      ╎ │ ✓ done · team │
-  ╰────────┬───────╯ ╎│                  │                                      ╎ ╰───────────────╯
-           │         ╎╰─────────┬────────╯                                      ╎
+  │                │ ╎│                  │                                      ╎ │               │
+  ╰────────┬───────╯ ╎╰─────────┬────────╯                                      ╎ ╰───────────────╯
            │         ╎          │                                               ╎
            │         ╎          ├───────────────────┬──────────────────╮        ╎
-  ╭────────┴───────╮ ╎          │                   │                  │        ╎
-  │ nested look    │ ╎ ╭────────┴───────╮  ╭────────┴───────╮  ╭───────┴───────╮╎
-  │ ✓ done · helpe │ ╎ │ lens 0         │  │ lens 1         │  │ lens 2        │╎
-  ╰────────────────╯ ╎ │ ✓ done · revie │  │ ✓ done · revie │  │ ✗ failed · re │╎
+           │         ╎          │                   │                  │        ╎
+  ╭────────┴───────╮ ╎ ╭────────┴───────╮  ╭────────┴───────╮  ╭───────┴───────╮╎
+  │ nested look    │ ╎ │ lens 0         │  │ lens 1         │  │ lens 2        │╎
+  │ ✓ done · helpe │ ╎ │ ✓ done · revie │  │ ✓ done · revie │  │ ✗ failed · re │╎
+  ╰────────────────╯ ╎ │                │  │                │  │               │╎
                      ╎ ╰────────────────╯  ╰────────────────╯  ╰───────────────╯╎
                      ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
@@ -37,7 +39,7 @@ you scrub back through the session or replay it.
 │──────────────────────────────────────────────────────────────────────────────────────────────────│
 │ ◆ /clear                                                                                         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- ● LIVE  6 agents · 840 tok  ⌖ overview  ↺ layout
+ ● LIVE  6 agents · 1.1k tok · 100 ctx · 0% cache  ⌖ overview  ↺ layout
 ```
 
 The capture above is drawn from the synthetic session in the test
@@ -64,6 +66,25 @@ mod is built and why.
 
 Run `/viz` to open the pane. It docks beside the transcript when the
 terminal is wide enough and opens inline otherwise.
+
+The first `/viz` in a session reads the session's transcript files, so the
+graph shows everything from before as well: a resumed session, one
+restarted or compacted, or one recorded before the mod was installed. To
+see an old session, resume it with `claude --resume <id>` and run `/viz`.
+
+Each card counts tokens three ways, and the status bar does the same for
+the whole session:
+
+- **tok**: tokens consumed so far, input, output and cache reads and
+  writes across every model call. It only grows, also across a
+  compaction.
+- **cache share** (`87%` beside tok): how much of the input was served
+  from the prompt cache. It dips after a compaction and recovers.
+- **ctx**: the context size of the agent's latest model call. The status
+  bar shows main's. Workflow cards have none.
+
+Narrow cards and a narrow status bar drop the cache share first, then (on
+the status bar) ctx.
 
 Click the graph once to give it the keyboard. Escape hands the keyboard
 back to the prompt, so the graph uses `x` where you might expect Escape.
@@ -105,10 +126,20 @@ status-bar badge returns it to following the latest activity.
   columns, or outside fullscreen, the pane opens inline instead.
 - Cards show agents, tools, tokens and status. Reasoning text and queued
   operations are not available to mods, so they are not shown.
-- After a resume, history comes from the session's transcripts: the
-  newest 4096 messages per agent, marked `truncated` when cut, and without
-  timestamps, so it replays as one undated era. Workflow agents are not in
-  the transcripts and so are missing from a resumed graph.
+- The model call that writes a compaction's summary reports no usage to
+  mods, so tok leaves it out.
+- When the transcript file cannot be found or read (it is streamed with
+  `cat` when over 4 MiB, which Windows lacks), history comes from the
+  message list instead: the newest 4096 messages per agent, marked
+  `truncated` when cut, with no times or token counts and no workflow
+  agents. The debug log says why.
+- Events that fire while the mod hot-reloads are not seen live, and the
+  import reads only what came before the log began. The message history
+  fills in the agents and tool calls of that moment, but a prompt or a
+  model call's tokens in it can be missing.
+- A very long session imports at most 15,000 facts: the oldest tool calls,
+  prompts and token counts beyond that are left out and the status bar
+  says `truncated`. Every agent is still drawn.
 
 ## License
 

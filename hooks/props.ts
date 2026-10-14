@@ -23,6 +23,8 @@ export type PropsInput = {
   now: number
   /** Opening prompts already fetched, by agent id, sanitised. */
   prompts: ReadonlyMap<string, string>
+  /** How many times the log was renumbered; 0 when never. */
+  renumbered?: number
 }
 
 /** The agent details narrate: the selection, or the most recently active agent while following. */
@@ -87,7 +89,10 @@ const details = (m: SessionModel, agent: DerivedAgent, prompts: ReadonlyMap<stri
     status: agent.status,
     prompt: prompts.get(agent.id),
     eras: grouped,
-    tokens: agent.tokens,
+    ctx: agent.ctx,
+    tok: agent.tok,
+    cacheRead: agent.cacheRead,
+    inputAll: agent.inputAll,
     spawnedSeq: agent.firstSeq,
     endedSeq: ended,
     start: calls.find(c => c.start !== undefined)?.start,
@@ -100,12 +105,17 @@ const info = (m: SessionModel, agents: readonly DerivedAgent[], compress: boolea
   for (const c of m.calls.values()) if (c.tool && EDIT_TOOLS.has(c.tool)) edits += 1
   const prompts = [...m.prompts.values()].sort((a, b) => a.seq - b.seq)
   const main = agents.find(a => a.id === MAIN)
+  // A group's totals already include its children's.
+  const own = agents.filter(a => a.kind !== 'group')
   return {
     model: main?.model,
     agents: agents.filter(a => a.kind === 'sub').length,
-    tools: agents.reduce((s, a) => s + (a.kind === 'group' ? 0 : a.tools), 0),
+    tools: own.reduce((s, a) => s + a.tools, 0),
     edits,
-    tokens: agents.reduce((s, a) => s + (a.kind === 'group' ? 0 : a.tokens), 0),
+    ctx: main?.ctx ?? 0,
+    tok: own.reduce((s, a) => s + a.tok, 0),
+    cacheRead: own.reduce((s, a) => s + a.cacheRead, 0),
+    inputAll: own.reduce((s, a) => s + a.inputAll, 0),
     lastPrompt: prompts.at(-1)?.line,
     compress,
   }
@@ -166,7 +176,10 @@ export const buildProps = (input: PropsInput): Props => {
       status: d.status,
       tool: d.tool,
       tools: d.tools,
-      tokens: d.tokens,
+      ctx: d.ctx,
+      tok: d.tok,
+      cacheRead: d.cacheRead,
+      inputAll: d.inputAll,
       model: d.kind === 'sub' ? undefined : d.model,
       lastSeq: d.lastSeq,
     }))
@@ -187,6 +200,7 @@ export const buildProps = (input: PropsInput): Props => {
       },
       now,
       seq: m.seq,
+      renumbered: input.renumbered ?? 0,
     }
     const props: Props = {
       v: 1,
