@@ -3,10 +3,10 @@
 
 import type { ViewAgent } from '../../types'
 import type { Chip } from './chips'
-import { elbow, hook, strokes } from './edges'
+import { elbow, hook, spine, strokes } from './edges'
 import { Grid } from './grid'
 import { drawCard } from './cards'
-import { frameOf, rectOf, type Positions, type Rect } from './layout'
+import { frameOf, rectOf, rowsOf, type Positions, type Rect } from './layout'
 import { AMBER_DIM, FRAME, GREY, HOVER, ANT } from './palette'
 
 export type Camera = { x: number; y: number; z: number }
@@ -47,14 +47,26 @@ export const drawScene = (g: Grid, agents: readonly ViewAgent[], positions: Posi
 
   const index = new Map(agents.map((a, i) => [a.id, i]))
   const family: number[] = agents.map(a => (a.parent !== undefined ? (index.get(a.parent) ?? -1) : -1))
+  // A parent whose children wrap onto a second row routes them all down a
+  // spine at its left, unless zoomed out so far that a child covers it.
+  const rows = rowsOf(agents)
+  const spined = new Set<string>()
+  for (const a of agents) if (a.parent !== undefined && (rows.get(a.id) ?? 0) > 0) spined.add(a.parent)
+  for (const a of agents) {
+    const p = a.parent !== undefined ? screen.get(a.parent) : undefined
+    const c = screen.get(a.id)
+    if (p && c && c.x < p.x + 2 && c.y > p.y) spined.delete(a.parent!)
+  }
   agents.forEach((a, i) => {
     if (a.parent === undefined) return
     const p = screen.get(a.parent)
     const c = screen.get(a.id)
     if (!p || !c) return
-    const from = { x: p.x + Math.floor(p.w / 2), y: p.y + p.h - 1 }
+    const isSpine = spined.has(a.parent)
+    const from = { x: isSpine ? p.x + 1 : p.x + Math.floor(p.w / 2), y: p.y + p.h - 1 }
     const to = { x: c.x + Math.floor(c.w / 2), y: c.y }
     if (to.y <= from.y + 1) return g.route(hook(from, { x: to.x, y: c.y + c.h - 1 }), i)
+    if (isSpine) return g.route(spine(from, to), i)
     const barY = from.y + Math.max(1, Math.floor((to.y - from.y) / 2))
     g.route(elbow(from, to, barY), i)
   })

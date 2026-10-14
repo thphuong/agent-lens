@@ -162,6 +162,48 @@ describe('lifecycle', () => {
     each(s.numbered(), d => expect(d.get(a)?.status).toBe('stopped'))
   })
 
+  test('an agent keeps its first end, even after a resume ends it again', () => {
+    const s = new Session()
+    const a = s.spawn({})
+    expect(byId(s.numbered()).get(a)?.endedSeq).toBeUndefined()
+    s.finish(a)
+    const first = byId(s.numbered()).get(a)!.endedSeq!
+    expect(first).toBeGreaterThan(byId(s.numbered()).get(a)!.firstSeq)
+    s.spawn({ resume: { agentId: a } })
+    s.finish(a)
+    each(s.numbered(), d => expect(d.get(a)?.endedSeq).toBe(first))
+  })
+
+  test('a workflow running its steps one after another is one wave with what main spawns meanwhile', () => {
+    const s = new Session()
+    const step = (i: number) => s.spawn({ workflow: { runId: 'run1', agentIndex: i } })
+    s.finish(step(0))
+    const second = step(1)
+    const meanwhile = s.spawn({})
+    s.finish(second)
+    s.finish(meanwhile)
+    const after = s.spawn({})
+    each(s.numbered(), d => expect(['wf:run1', meanwhile, after].map(id => d.get(id)?.wave)).toEqual([0, 0, 1]))
+  })
+
+  test('siblings that overlap share a wave; one spawned after the wave ended starts the next', () => {
+    const s = new Session()
+    const a = s.spawn({})
+    const b = s.spawn({})
+    s.finish(a)
+    const c = s.spawn({})
+    const nested = s.spawn({ parentAgentId: c })
+    s.finish(b)
+    s.finish(c)
+    s.finish(nested)
+    const d = s.spawn({})
+    s.spawn({ resume: { agentId: a } })
+    each(s.numbered(), m => {
+      expect([a, b, c, d].map(id => m.get(id)?.wave)).toEqual([0, 0, 0, 1])
+      expect(m.get(nested)?.wave).toBe(0)
+    })
+  })
+
   test('a teammate wakes after going idle', () => {
     const s = new Session()
     const mate = s.spawn({ isTeammate: true })

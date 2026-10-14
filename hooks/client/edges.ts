@@ -30,6 +30,12 @@ export const elbow = (from: Pt, to: Pt, barY: number): Pt[] => {
 }
 
 /**
+ * The path for a parent with more than one row of children: down a spine at
+ * `from`'s column to a bar two rows above the child, then across and into it.
+ */
+export const spine = (from: Pt, to: Pt): Pt[] => elbow(from, to, to.y - 2)
+
+/**
  * The path to a child that is not below its parent (dragged up or level):
  * out of the parent's bottom, along the row under both cards, and up into
  * the child's bottom border.

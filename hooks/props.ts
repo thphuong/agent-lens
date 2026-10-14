@@ -181,6 +181,7 @@ export const buildProps = (input: PropsInput): Props => {
       cacheRead: d.cacheRead,
       inputAll: d.inputAll,
       model: d.kind === 'sub' ? undefined : d.model,
+      wave: d.wave || undefined,
       lastSeq: d.lastSeq,
     }))
     const view: ViewModel = {

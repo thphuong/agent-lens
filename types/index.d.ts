@@ -102,6 +102,11 @@ export type ViewAgent = {
   cacheRead: number
   inputAll: number
   model?: string
+  /**
+   * Which batch of siblings that ran at the same time the agent belongs to,
+   * counted under its parent in arrival order; absent for the first batch.
+   */
+  wave?: number
   lastSeq: number
 }
 

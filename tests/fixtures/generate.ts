@@ -151,8 +151,12 @@ export const reference = (): Session => {
   return s
 }
 
-/** A large session: `agents` subagents sharing `calls` calls, for benchmarks and budgets. */
-export const large = (agents: number, calls: number, seed = 7): Session => {
+/**
+ * A large session: `agents` subagents sharing `calls` calls, for benchmarks
+ * and budgets. With `batch`, agents finish in batches of that many as they
+ * spawn, so siblings fall into many waves.
+ */
+export const large = (agents: number, calls: number, seed = 7, batch?: number): Session => {
   const r = rng(seed)
   const s = new Session()
   const tools = ['Read', 'Grep', 'Bash', 'Edit', 'Write', 'Glob', 'WebFetch']
@@ -161,6 +165,7 @@ export const large = (agents: number, calls: number, seed = 7): Session => {
   for (let i = 0; i < agents; i++) {
     const parent = ids.length > 0 && r() < 0.3 ? ids[Math.floor(r() * ids.length)] : undefined
     ids.push(s.spawn({ description: `agent number ${i} with a long description`, parentAgentId: parent }))
+    if (batch && (i + 1) % batch === 0) for (const id of ids.slice(-batch)) s.finish(id)
     if (i % 25 === 0) s.prompt(`prompt ${i}`)
   }
   for (let i = 0; i < calls; i++) {
@@ -169,5 +174,29 @@ export const large = (agents: number, calls: number, seed = 7): Session => {
     if (r() < 0.01) s.tick(70_000)
   }
   for (const id of ids) s.finish(id)
+  return s
+}
+
+/**
+ * A waterfall session: batches of agents that run at the same time under
+ * main, each batch finished before the next spawns. The second batch is six
+ * wide and the first holds a nested child.
+ */
+export const waterfall = (): Session => {
+  const s = new Session()
+  s.facts.push({ kind: 'agent', agent: MAIN, agentKind: 'main' })
+  s.prompt('fan out in batches')
+  s.start()
+  for (const [i, width] of [3, 6, 2].entries()) {
+    const batch = Array.from({ length: width }, (_, k) => s.spawn({ description: `batch ${i} lens ${k}` }))
+    for (const id of batch) s.call(id, 'Read')
+    if (i === 0) {
+      const nested = s.spawn({ description: 'nested look', parentAgentId: batch[0] })
+      s.call(nested, 'Grep')
+      s.finish(nested)
+    }
+    for (const id of batch) s.finish(id)
+  }
+  s.finish(undefined)
   return s
 }

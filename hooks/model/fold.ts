@@ -202,6 +202,20 @@ export type DerivedAgent = {
   inputAll: number
   firstSeq: number
   lastSeq: number
+  /**
+   * The earliest end, not the latest, so a resumed agent never changes what
+   * was decided while it first ran. Absent for a group, which runs while any
+   * child that has spawned does. Only `ended` facts count: an agent whose end
+   * arrived only as a `status` fact has none, so its wave never closes and
+   * every later sibling joins it.
+   */
+  endedSeq?: number
+  /**
+   * Which batch of concurrent siblings the agent belongs to, counted from 0
+   * under its parent in arrival order. An agent joins the newest batch if any
+   * member was still running when it spawned; otherwise it starts the next.
+   */
+  wave: number
   truncated: boolean
 }
 
@@ -228,6 +242,8 @@ const metrics = (a: AgentState) => {
   if (a.usage.size === 0) tok = a.tokens?.value ?? 0
   return { ctx: last ? last.input + last.cacheRead + last.cacheWrite : 0, tok, cacheRead, inputAll }
 }
+
+const firstEnd = (a: AgentState): number | undefined => (a.endedSeqs.length ? Math.min(...a.endedSeqs) : undefined)
 
 /**
  * The display projection of the model: one entry per visible agent (engine
@@ -284,6 +300,8 @@ export const derive = (m: SessionModel): DerivedAgent[] => {
       ...metrics(a),
       firstSeq: a.firstSeq,
       lastSeq: a.lastSeq,
+      endedSeq: firstEnd(a),
+      wave: 0,
       truncated: a.truncated,
     })
   }
@@ -312,5 +330,33 @@ export const derive = (m: SessionModel): DerivedAgent[] => {
     g.inputAll = kids.reduce((s, k) => s + k.inputAll, g.inputAll)
     g.lastSeq = kids.reduce((s, k) => Math.max(s, k.lastSeq), g.lastSeq)
   }
-  return [...out.values()].sort((x, y) => x.firstSeq - y.firstSeq || (x.id < y.id ? -1 : 1))
+  const sorted = [...out.values()].sort((x, y) => x.firstSeq - y.firstSeq || (x.id < y.id ? -1 : 1))
+  assignWaves(sorted)
+  return sorted
+}
+
+/** Numbers each agent's wave among its siblings; `agents` is in arrival order. */
+const assignWaves = (agents: readonly DerivedAgent[]): void => {
+  const kids = new Map<string, DerivedAgent[]>()
+  for (const a of agents) {
+    if (a.parent === undefined) continue
+    const list = kids.get(a.parent) ?? []
+    list.push(a)
+    kids.set(a.parent, list)
+  }
+  // Whether an agent ran at seq t: facts after t cannot change the answer. A
+  // group runs while any child spawned by then does, or before its first child.
+  const runningAt = (a: DerivedAgent, t: number, depth = 0): boolean => {
+    if (a.kind !== 'group') return a.endedSeq === undefined || a.endedSeq > t
+    const spawned = (kids.get(a.id) ?? []).filter(k => k.firstSeq <= t)
+    return spawned.length === 0 || depth > 64 || spawned.some(k => runningAt(k, t, depth + 1))
+  }
+  const current = new Map<string | undefined, { wave: number; members: DerivedAgent[] }>()
+  for (const a of agents) {
+    const w = current.get(a.parent)
+    if (!w) current.set(a.parent, { wave: 0, members: [a] })
+    else if (w.members.some(m => runningAt(m, a.firstSeq))) w.members.push(a)
+    else current.set(a.parent, { wave: w.wave + 1, members: [a] })
+    a.wave = current.get(a.parent)!.wave
+  }
 }

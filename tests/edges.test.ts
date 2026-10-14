@@ -75,3 +75,43 @@ test('a child dragged level with its parent stays connected, entered from below'
   expect((rows[7]!.match(/┬/g) ?? []).length).toBe(2)
   expect(rows[8]!.trim()).toMatch(/^╰─+╯$/)
 })
+
+describe('spine', () => {
+  const column = (rows: string[], x: number) => rows.map(r => r[x] ?? ' ')
+
+  test('a parent with one row of children leaves from its centre', () => {
+    const agents = [agent('main', undefined, 'main'), agent('a', 'main'), agent('b', 'main')]
+    const pos = { main: { x: 0, y: 0 }, a: { x: 3, y: 12 }, b: { x: 32, y: 12 } }
+    const g = new Grid(70, 20)
+    drawScene(g, agents, pos, { x: 0, y: 0, z: 1 })
+    const rows = Array.from({ length: g.h }, (_, y) => rowText(g, y))
+    expect(rows[7]!.indexOf('┬')).toBe(15)
+    expect(rows[7]!.lastIndexOf('┬')).toBe(15)
+  })
+
+  test('a parent with a second row of children routes every child down a spine at its left', () => {
+    const agents = [agent('main', undefined, 'main'), agent('a', 'main'), { ...agent('b', 'main'), wave: 1 }]
+    const pos = { main: { x: 0, y: 0 }, a: { x: 3, y: 12 }, b: { x: 3, y: 23 } }
+    const g = new Grid(40, 31)
+    drawScene(g, agents, pos, { x: 0, y: 0, z: 1 })
+    const rows = Array.from({ length: g.h }, (_, y) => rowText(g, y))
+    expect(rows[7]!.indexOf('┬')).toBe(1)
+    expect(rows[7]!.lastIndexOf('┬')).toBe(1)
+    // Down the spine, out to the first row's bar, on to the last bar.
+    expect(column(rows, 1).slice(8, 22).join('')).toBe('││├││││││││││╰')
+    expect(rows[10]!.trimEnd()).toBe(' ├──────────────╮')
+    expect(rows[21]!.trimEnd()).toBe(' ╰──────────────╮')
+    // Each child is entered at its centre.
+    expect(rows[12]![16]).toBe('┴')
+    expect(rows[23]![16]).toBe('┴')
+  })
+
+  test('zoomed out until a child would cover the spine, the edges leave from the centre', () => {
+    const agents = [agent('main', undefined, 'main'), agent('a', 'main'), { ...agent('b', 'main'), wave: 1 }]
+    const pos = { main: { x: 0, y: 0 }, a: { x: 3, y: 12 }, b: { x: 3, y: 23 } }
+    const g = new Grid(20, 14)
+    drawScene(g, agents, pos, { x: 0, y: 0, z: 0.4 })
+    const rows = Array.from({ length: g.h }, (_, y) => rowText(g, y))
+    expect(rows[2]!.indexOf('┬')).toBe(6)
+  })
+})

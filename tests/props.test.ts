@@ -26,6 +26,14 @@ describe('size budget', () => {
     expect(props.details).toBeDefined()
   })
 
+  test('400 agents finishing in batches, so most carry a wave, stay under 100,000 characters', () => {
+    const t = timelineOf(large(400, 10_000, 7, 4))
+    const ui: UiState = { ...EMPTY_UI, overlay: 'info', detailFollow: true }
+    const props = buildProps({ timeline: t, ui, now: Date.now(), prompts: new Map([['main', 'p'.repeat(600)]]) })
+    expect(props.view.agents.filter(a => a.wave !== undefined).length).toBeGreaterThan(200)
+    expect(JSON.stringify(props).length).toBeLessThan(100_000)
+  })
+
   test('the renumber count reaches the Client', () => {
     const t = timelineOf(reference())
     expect(buildProps({ timeline: t, ui: EMPTY_UI, now: 0, prompts: new Map() }).view.renumbered).toBe(0)
