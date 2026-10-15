@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { frameOf, place, rectOf, relayout, ROW_INDENT, type Positions, type Rect } from '../hooks/client/layout'
+import { frameOf, layout, rectOf, ROW_INDENT, rowsOf, type Positions, type Rect } from '../hooks/client/layout'
 import { derive, foldAll } from '../hooks/model/fold'
 import type { ViewAgent } from '../types'
-import { Session, waterfall } from './fixtures/generate'
+import { large, resumed, Session, waterfall, wrapped } from './fixtures/generate'
 
 const agent = (id: string, parent?: string, kind: ViewAgent['kind'] = 'sub') => ({ id, parent, kind })
 
@@ -24,18 +24,19 @@ const tree = [
   agent('w2', 'wf'),
 ]
 
-describe('relayout', () => {
+describe('layout', () => {
   test('cards never overlap and children sit under their parent', () => {
-    const pos = relayout(tree)
+    const pos = layout(tree, {})
     noOverlaps(tree, pos)
     for (const a of tree) {
       if (!a.parent) continue
       expect(pos[a.id]!.y).toBeGreaterThan(pos[a.parent]!.y)
     }
+    expect(pos.a!.x).toBe(pos.main!.x + ROW_INDENT)
   })
 
   test('a group frame encloses its children', () => {
-    const pos = relayout(tree)
+    const pos = layout(tree, {})
     const f = frameOf(tree[4]!, tree, pos)!
     for (const id of ['wf', 'w1', 'w2']) {
       const r = rectOf(tree.find(a => a.id === id)!, pos)!
@@ -48,49 +49,22 @@ describe('relayout', () => {
   })
 
   test('is deterministic', () => {
-    expect(relayout(tree)).toEqual(relayout(tree))
-  })
-})
-
-describe('incremental placement', () => {
-  test('appending a child moves no existing card', () => {
-    const before = relayout(tree)
-    const grown = [...tree, agent('b1', 'b'), agent('w3', 'wf'), agent('c', 'main')]
-    const after = place(before, grown, {})
-    for (const id of Object.keys(before)) expect(after[id]).toEqual(before[id])
-    noOverlaps(grown, after)
-    expect(after.b1!.y).toBeGreaterThan(after.b!.y)
-  })
-
-  test('pinned positions are kept', () => {
-    const after = place({}, tree, { a: { x: 500, y: 300 } })
-    expect(after.a).toEqual({ x: 500, y: 300 })
+    expect(layout(tree, {})).toEqual(layout(tree, {}))
   })
 })
 
 test('a new card outside a group keeps clear of its frame', () => {
-  const before = relayout(tree)
   const grown = [...tree, agent('late', 'main')]
-  const after = place(before, grown, {})
+  const after = layout(grown, {})
   const frame = frameOf(tree[4]!, grown, after)!
   const r = rectOf(grown.at(-1)!, after)!
   expect(r.x < frame.x + frame.w && frame.x < r.x + r.w && r.y < frame.y + frame.h && frame.y < r.y + r.h).toBe(false)
 })
 
-test('the cards seen early in a session sit where they first appeared, however many come later', () => {
-  const grown = [...tree, agent('b1', 'b'), agent('w3', 'wf'), agent('c', 'main'), agent('c1', 'c')]
-  const full = relayout(grown)
-  for (let n = 1; n <= grown.length; n++) {
-    const early = relayout(grown.slice(0, n))
-    for (const id of Object.keys(early)) expect(full[id]).toEqual(early[id])
-  }
-  expect(full.a!.x).toBe(full.main!.x + ROW_INDENT)
-})
-
 describe('waves', () => {
   const facts = waterfall().numbered()
   const agents = derive(foldAll(facts))
-  const pos = relayout(agents)
+  const pos = layout(agents, {})
   const byLabel = (label: string) => agents.find(a => a.label === label)!
   const batch = (i: number) => agents.filter(a => a.label.startsWith(`batch ${i} `))
   const bottom = (ids: readonly string[]) => Math.max(...ids.map(id => rectOf(agents.find(a => a.id === id)!, pos)!).map(r => r.y + r.h))
@@ -119,21 +93,6 @@ describe('waves', () => {
   test('cards never overlap', () => {
     noOverlaps(agents, pos)
   })
-
-  test('placing one card at a time lands every card where a full relayout does', () => {
-    let grown: Positions = {}
-    for (let n = 1; n <= agents.length; n++) grown = place(grown, agents.slice(0, n), {})
-    expect(grown).toEqual(pos)
-  })
-
-  test('the layout after any event of the session is where the full one put those cards', () => {
-    // One event's facts share a time; a cut inside a spawn would see the agent before its parent.
-    for (let n = 1; n <= facts.length; n++) {
-      if (n < facts.length && facts[n]!.at === facts[n - 1]!.at) continue
-      const early = relayout(derive(foldAll(facts, n)))
-      for (const id of Object.keys(early)) expect(early[id]).toEqual(pos[id])
-    }
-  })
 })
 
 test('a card main spawns while a workflow runs its steps in turn stays outside the workflow frame', () => {
@@ -147,18 +106,118 @@ test('a card main spawns while a workflow runs its steps in turn stays outside t
   s.finish(meanwhile)
   s.finish(step(3))
   const agents = derive(foldAll(s.numbered()))
-  const pos = relayout(agents)
+  const pos = layout(agents, {})
   noOverlaps(agents, pos)
   const frame = frameOf(agents.find(a => a.id === 'wf:run1')!, agents, pos)!
   for (const a of agents.filter(a => a.parent === 'main' && a.kind !== 'group')) expect(overlap(rectOf(a, pos)!, frame)).toBe(false)
 })
 
-test('a dragged card and its subtree do not push a later row down', () => {
-  const agents = [agent('main', undefined, 'main'), agent('a', 'main'), agent('a1', 'a'), { ...agent('b', 'main'), wave: 1 }]
-  const free = relayout(agents)
-  const pinned = { a: { x: 3, y: 200 } }
-  const pos = place({}, agents, pinned)
-  expect(pos.a1!.y).toBeGreaterThan(200)
-  expect(pos.b!.y).toBe(relayout(agents.filter(x => x.id !== 'a' && x.id !== 'a1')).b!.y)
-  expect(free.b!.y).toBeGreaterThan(free.a1!.y)
+/** The agents shown after each event of a session, cut where an event ends: a cut inside a spawn would see the agent before its parent. */
+const cuts = (facts: ReturnType<Session['numbered']>) =>
+  facts.flatMap((_, i) => (i + 1 < facts.length && facts[i + 1]!.at === facts[i]!.at ? [] : [derive(foldAll(facts, i + 1))]))
+
+test('a subtree that grows pushes later rows down and leaves their x alone', () => {
+  const all = cuts(wrapped().numbered())
+  const full = all.at(-1)!
+  const before = all.findLast(agents => !agents.some(a => a.label === 'late child'))!
+  const was = layout(before, {})
+  const pos = layout(full, {})
+  const byLabel = (label: string) => full.find(a => a.label === label)!
+  const wide = full.filter(a => a.label.startsWith('wide lens '))
+  expect(new Set(wide.slice(0, 4).map(a => pos[a.id]!.y)).size).toBe(1)
+  for (const a of wide.slice(0, 4)) expect(pos[a.id]).toEqual(was[a.id])
+  for (const a of wide.slice(4)) {
+    expect(pos[a.id]!.x).toBe(was[a.id]!.x)
+    expect(pos[a.id]!.y).toBeGreaterThan(was[a.id]!.y)
+  }
+  const late = rectOf(byLabel('late child'), pos)!
+  expect(late.x).toBe(pos[wide[0]!.id]!.x + ROW_INDENT)
+  expect(late.y).toBeGreaterThan(pos[wide[0]!.id]!.y)
+  expect(pos[wide[4]!.id]!.y).toBeGreaterThan(late.y + late.h)
+  noOverlaps(full, pos)
+})
+
+test("a resumed agent's new child sits under it", () => {
+  const agents = derive(foldAll(resumed().numbered()))
+  const pos = layout(agents, {})
+  const byLabel = (label: string) => agents.find(a => a.label === label)!
+  const first = byLabel('first look again')
+  const child = rectOf(byLabel('resumed child'), pos)!
+  expect(child.x).toBe(pos[first.id]!.x + ROW_INDENT)
+  expect(child.y).toBeGreaterThan(pos[first.id]!.y)
+  expect(pos[byLabel('second look').id]!.y).toBeGreaterThan(child.y + child.h)
+  noOverlaps(agents, pos)
+})
+
+test('a childless sibling packs next to a sibling with a deep subtree', () => {
+  const agents = [agent('main', undefined, 'main'), agent('a', 'main'), agent('a1', 'a'), agent('a2', 'a1'), agent('b', 'main')]
+  const pos = layout(agents, {})
+  expect(pos.b!.y).toBe(pos.a!.y)
+  expect(pos.b!.x).toBe(pos.a!.x + 26 + 3)
+  noOverlaps(agents, pos)
+})
+
+test('a spine column stays clear of neighbouring subtrees', () => {
+  for (const facts of [waterfall().numbered(), large(120, 200, 7, 4).numbered(), large(120, 200, 3, 1).numbered()]) {
+    const agents = derive(foldAll(facts))
+    const pos = layout(agents, {})
+    noOverlaps(agents, pos)
+    const rows = rowsOf(agents)
+    for (const p of agents) {
+      const kids = agents.filter(a => a.parent === p.id)
+      if (!kids.some(a => (rows.get(a.id) ?? 0) > 0)) continue
+      const top = rectOf(p, pos)!
+      const lastY = Math.max(...kids.map(a => pos[a.id]!.y))
+      const column = { x: top.x + 1, y: top.y + top.h, w: 1, h: lastY - top.y - top.h }
+      for (const a of agents) expect(overlap(rectOf(a, pos)!, column)).toBe(false)
+    }
+  }
+})
+
+test('a dragged card keeps its slot', () => {
+  const agents = [agent('main', undefined, 'main'), agent('a', 'main'), agent('a1', 'a'), { ...agent('b', 'main'), wave: 1 }, { ...agent('c', 'main'), wave: 1 }]
+  const free = layout(agents, {})
+  const pos = layout(agents, { a: { x: 3, y: 200 } })
+  expect(pos.a).toEqual({ x: 3, y: 200 })
+  expect(pos.a1!.x - pos.a!.x).toBe(free.a1!.x - free.a!.x)
+  expect(pos.a1!.y - pos.a!.y).toBe(free.a1!.y - free.a!.y)
+  for (const id of ['main', 'b', 'c']) expect(pos[id]).toEqual(free[id])
+})
+
+test('an inner pin wins over an outer one for its own subtree', () => {
+  const agents = [agent('main', undefined, 'main'), agent('a', 'main'), agent('a1', 'a'), agent('a2', 'a1')]
+  const free = layout(agents, {})
+  const pos = layout(agents, { a1: { x: 90, y: 90 }, a: { x: 3, y: 200 } })
+  expect(pos.a).toEqual({ x: 3, y: 200 })
+  expect(pos.a1).toEqual({ x: 90, y: 90 })
+  expect(pos.a2!.x - pos.a1!.x).toBe(free.a2!.x - free.a1!.x)
+})
+
+test('pins in a parent cycle are each honoured', () => {
+  const agents = [agent('main', undefined, 'main'), agent('a', 'b'), agent('b', 'a')]
+  const pos = layout(agents, { a: { x: 5, y: 5 }, b: { x: 50, y: 50 } })
+  expect(pos.a).toEqual({ x: 5, y: 5 })
+  expect(pos.b).toEqual({ x: 50, y: 50 })
+})
+
+test('a pin for an agent not shown is ignored', () => {
+  expect(layout(tree, { ghost: { x: 50, y: 50 } })).toEqual(layout(tree, {}))
+})
+
+describe('benchmark', () => {
+  // Folded up front, so the garbage the fold leaves is not collected inside a timed run.
+  const sessions = [undefined, 4, 1].map(batch => ({ batch, agents: derive(foldAll(large(400, 2000, 7, batch).numbered())) }))
+  for (const { batch, agents } of sessions)
+    test(`a layout of 400 agents${batch ? ` finishing in batches of ${batch}` : ''} takes at most 4 ms`, () => {
+      layout(agents, {})
+      const runs: number[] = []
+      for (let k = 0; k < 20; k++) {
+        const t0 = performance.now()
+        layout(agents, {})
+        runs.push(performance.now() - t0)
+      }
+      // The median, so one collection or preemption from the files running alongside does not decide it.
+      runs.sort((x, y) => x - y)
+      expect(runs[10]).toBeLessThanOrEqual(4)
+    })
 })

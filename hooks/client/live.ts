@@ -2,10 +2,10 @@
 // records the props it was handed and what it drew, input edits it, and only
 // the frame timer asks for redraws.
 
-import type { CameraMode, Intent, Props, ViewAgent } from '../../types'
+import type { CameraMode, Intent, Point, Props, ViewAgent } from '../../types'
 import { Presentation } from './anim'
-import { Camera } from './camera'
-import { bounds, rectOf, type Positions, type Rect } from './layout'
+import { Camera, glideK, SNAP } from './camera'
+import { bounds, layout, rectOf, type Positions, type Rect } from './layout'
 import { Outbox } from './outbox'
 import type { Regions } from './regions'
 
@@ -16,8 +16,22 @@ export type Drag =
 
 export type Live = {
   props: Props
+  /** Where each card is drawn: easing toward `target`, or under the pointer while dragged. */
   positions: Positions
-  relayoutSeq: number
+  /** Where the layout puts each card, for the agents shown and the pins. */
+  target: Positions
+  /** What `target` was laid out from: the agents' ids, parents, kinds and waves, and the pins. */
+  layoutKey: string
+  /**
+   * Pins of drags released before the hooks module answered with them. A
+   * props pin that changed since `pinsSeen` drops the local one, so props win.
+   */
+  pins: Positions
+  pinsSeen: Readonly<Positions>
+  /** A jump that arrived while a card was dragged, to land on release. */
+  isSnapPending: boolean
+  /** The pinned cards and what hangs under them, drawn over the rest. */
+  onTop: Set<string>
   camera: Camera
   /**
    * The camera mode input switched to before the hooks module answered with
@@ -53,7 +67,12 @@ export const createLive = (props: Props, regions: Regions, now: number): Live =>
   const live: Live = {
     props,
     positions: {},
-    relayoutSeq: -1,
+    target: {},
+    layoutKey: '',
+    pins: {},
+    pinsSeen: props.ui.pinned,
+    isSnapPending: false,
+    onTop: new Set(),
     camera: new Camera(),
     pres: new Presentation(),
     detailScroll: 0,
@@ -70,6 +89,86 @@ export const createLive = (props: Props, regions: Regions, now: number): Live =>
   }
   live.pres.adoptBaseline(props.view.seq)
   return live
+}
+
+const pinsKey = (pins: Readonly<Positions>): string =>
+  Object.keys(pins)
+    .sort()
+    .map(id => `${id}@${pins[id]!.x},${pins[id]!.y}`)
+    .join(';')
+
+/** Whether a card is being dragged: the layout holds still until it is dropped. */
+export const isFrozen = (live: Live): boolean => live.drag?.kind === 'node' && live.drag.isMoved
+
+const samePoint = (a: Point | undefined, b: Point | undefined) => a?.x === b?.x && a?.y === b?.y
+
+/**
+ * Lays the cards out again when the agents shown or the pins changed, and
+ * with `snap` draws them where they belong at once. While a card is dragged
+ * no card moves, though a card that arrives meanwhile appears where the
+ * layout puts it; the rest applies on release.
+ */
+export const syncLayout = (live: Live, props: Props, snap: boolean): void => {
+  const agents = props.view.agents
+  if (isFrozen(live)) {
+    live.isSnapPending ||= snap
+    const missing = agents.filter(a => !live.positions[a.id])
+    if (missing.length === 0) return
+    const fresh = layout(agents, { ...props.ui.pinned, ...live.pins })
+    live.positions = { ...live.positions }
+    for (const a of missing) live.positions[a.id] = fresh[a.id]!
+    return
+  }
+  snap ||= live.isSnapPending
+  live.isSnapPending = false
+  if (props.ui.pinned !== live.pinsSeen) {
+    const pins: Positions = {}
+    for (const [id, p] of Object.entries(live.pins)) if (samePoint(props.ui.pinned[id], live.pinsSeen[id])) pins[id] = p
+    live.pins = pins
+    live.pinsSeen = props.ui.pinned
+  }
+  const pinned = { ...props.ui.pinned, ...live.pins }
+  const key = `${agents.map(a => `${a.id}<${a.parent ?? ''}:${a.kind}:${a.wave}`).join(' ')}|${pinsKey(pinned)}`
+  if (key !== live.layoutKey) {
+    live.layoutKey = key
+    live.target = layout(agents, pinned)
+    const kids = new Map<string, string[]>()
+    for (const a of agents) if (a.parent !== undefined) kids.set(a.parent, [...(kids.get(a.parent) ?? []), a.id])
+    const onTop = new Set<string>()
+    const add = (id: string, depth: number) => {
+      if (onTop.has(id) || depth > 64) return
+      onTop.add(id)
+      for (const c of kids.get(id) ?? []) add(c, depth + 1)
+    }
+    for (const a of agents) if (pinned[a.id]) add(a.id, 0)
+    live.onTop = onTop
+  }
+  if (snap) live.positions = live.target
+}
+
+/** Eases each drawn card toward the layout by one step of `dtMs`; answers whether any card moved. */
+export const stepPositions = (live: Live, dtMs: number): boolean => {
+  if (isFrozen(live) || live.positions === live.target) return false
+  const k = glideK(dtMs)
+  const next: Positions = {}
+  let isSettled = true
+  for (const [id, t] of Object.entries(live.target)) {
+    const p = live.positions[id]
+    const x = p ? p.x + (t.x - p.x) * k : t.x
+    const y = p ? p.y + (t.y - p.y) * k : t.y
+    const isNear = Math.abs(t.x - x) < SNAP && Math.abs(t.y - y) < SNAP
+    next[id] = isNear ? t : { x, y }
+    if (!isNear) isSettled = false
+  }
+  live.positions = isSettled ? live.target : next
+  return true
+}
+
+/** Clears every dragged position: those not yet answered at once, the rest when the hooks module answers. */
+export const resetLayout = (live: Live): void => {
+  live.pins = {}
+  live.outbox.push({ type: 'relayout' })
+  live.isDirty = true
 }
 
 export const isRunning = (a: ViewAgent) => a.status === 'running'

@@ -112,12 +112,11 @@ describe('intents', () => {
     expect(parseIntents({ intents: Array.from({ length: 50 }, () => ({ type: 'live' })) }, agents)).toHaveLength(32)
   })
 
-  test('relayout clears pins and bumps the relayout counter; close is reported', () => {
+  test('relayout clears pins; close is reported', () => {
     const t = timelineOf(reference())
     const ui: UiState = { ...EMPTY_UI, pinned: { a1: { x: 1, y: 2 } } }
     const r = applyIntents([{ type: 'relayout' }, { type: 'close' }], t, ui)
     expect(r.ui.pinned).toEqual({})
-    expect(r.ui.relayoutSeq).toBe(1)
     expect(r.close).toBe(true)
   })
 })

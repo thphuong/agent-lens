@@ -5,7 +5,7 @@
 import type { ClientKeyEvent } from 'claude-code'
 
 import { Camera } from './camera'
-import { cameraMode, closeDetails, graphBounds, setMode, toggleFollow, type Live } from './live'
+import { cameraMode, closeDetails, graphBounds, resetLayout, setMode, toggleFollow, type Live } from './live'
 import { rectOf, type Rect } from './layout'
 
 const PAN_X = 4
@@ -36,7 +36,7 @@ const hasDetails = (live: Live) => live.regions.details !== undefined && live.pr
 const select = (live: Live, id: string): void => {
   live.outbox.push({ type: 'select', id })
   const a = live.props.view.agents.find(x => x.id === id)
-  const r = a && rectOf(a, live.positions)
+  const r = a && rectOf(a, live.target)
   const s = live.screen.get(id)
   const c = live.regions.canvas
   const isShown = s !== undefined && s.x >= 0 && s.y >= 0 && s.x + s.w <= c.w && s.y + s.h <= c.h
@@ -56,14 +56,14 @@ const cycle = (live: Live, dir: 1 | -1): void => {
 const nearest = (live: Live, dx: number, dy: number): string | undefined => {
   const agents = live.props.view.agents
   const from = agents.find(a => a.id === live.props.ui.selected)
-  const fr = from && rectOf(from, live.positions)
+  const fr = from && rectOf(from, live.target)
   const c = live.regions.canvas
   const origin = fr ? centreOf(fr) : live.camera.screenToWorld(c.w / 2, c.h / 2)
   let best: string | undefined
   let bestScore = Infinity
   for (const a of agents) {
     if (a.id === from?.id) continue
-    const r = rectOf(a, live.positions)
+    const r = rectOf(a, live.target)
     if (!r) continue
     const p = centreOf(r)
     const along = (p.x - origin.x) * dx + (p.y - origin.y) * dy
@@ -81,7 +81,7 @@ const nearest = (live: Live, dx: number, dy: number): string | undefined => {
 const centre = (live: Live): void => {
   const c = live.regions.canvas
   const a = live.props.view.agents.find(x => x.id === live.props.ui.selected)
-  const r = (a && rectOf(a, live.positions)) ?? graphBounds(live.props, live.positions)
+  const r = (a && rectOf(a, live.target)) ?? graphBounds(live.props, live.target)
   if (!r) return
   live.camera.aim(Camera.centre(r, c.w, c.h, live.camera.z))
   setMode(live, 'manual')
@@ -114,7 +114,7 @@ export const onKey = (live: Live, e: ClientKeyEvent): void => {
     case 'f':
       return toggleFollow(live)
     case 'r':
-      return out.push({ type: 'relayout' })
+      return resetLayout(live)
     case '?':
       return out.push({ type: 'overlay', overlay: ui.overlay === 'help' ? 'none' : 'help' })
     case 'i':

@@ -7,8 +7,8 @@ import { chipsFor } from './chips'
 import { Grid } from './grid'
 import { applyWheel, onPointer } from './input'
 import { onKey } from './keymap'
-import { place, relayout, rectOf, type Rect } from './layout'
-import { cameraMode, createLive, graphBounds, isRunning, type Live } from './live'
+import { rectOf, type Rect } from './layout'
+import { cameraMode, createLive, graphBounds, isRunning, stepPositions, syncLayout, type Live } from './live'
 import { drawMinimap, minimapRect, needsMinimap } from './minimap'
 import { paint } from './paint'
 import { AMBER, AMBER_DIM, GREY, mix, STATUS_COLOR } from './palette'
@@ -25,20 +25,13 @@ const KEY_HINT = 'click for keys'
 
 type S = { live: Live; frame: number }
 
-/** Places new agents, or all of them afresh after a relayout request; existing cards never move otherwise. */
-const syncPositions = (live: Live, props: Props): void => {
-  const agents = props.view.agents
-  if (live.relayoutSeq !== props.ui.relayoutSeq) {
-    live.positions = { ...relayout(agents), ...props.ui.pinned }
-    live.relayoutSeq = props.ui.relayoutSeq
-  } else if (!agents.every(a => live.positions[a.id])) {
-    live.positions = place(live.positions, agents, props.ui.pinned)
-  }
-}
-
-/** Points the camera by its mode: the most recently active agent, the whole graph, or wherever the person left it. */
+/**
+ * Points the camera by its mode: the most recently active agent, the whole
+ * graph, or wherever the person left it. It aims where the layout puts the
+ * cards, so it glides to the same end as they do.
+ */
 const aimCamera = (live: Live, canvas: Rect, snap: boolean): void => {
-  const { props, positions, camera } = live
+  const { props, target: positions, camera } = live
   const mode = cameraMode(live)
   const graph = graphBounds(props, positions)
   // A card being dragged stays under the pointer: the camera holds still.
@@ -63,7 +56,9 @@ export const drawFrame = (live: Live, r: Regions, w: number, h: number): Grid =>
   const canvas = new Grid(r.canvas.w, r.canvas.h)
   const pulse = pres.pulse() / 3
   const borders = new Map(agents.filter(isRunning).map(a => [a.id, mix(AMBER_DIM, AMBER, pulse)]))
+  const onTop = live.drag?.kind === 'node' && live.drag.isMoved ? new Set([...live.onTop, live.drag.id]) : live.onTop
   live.screen = drawScene(canvas, agents, positions, camera, {
+    onTop,
     hover: live.hover,
     selected: props.ui.selected,
     borders,
@@ -99,7 +94,7 @@ export const drawFrame = (live: Live, r: Regions, w: number, h: number): Grid =>
   return g
 }
 
-/** One frame-clock tick: sends queued intents, steps presentation time and the camera, and redraws only while something moves. */
+/** One frame-clock tick: sends queued intents, steps presentation time, the cards and the camera, and redraws only while something moves. */
 const tick = (surface: Parameters<ClientModule<Props, S>>[1]): void => {
   const s = surface.state
   if (!s) return
@@ -112,12 +107,13 @@ const tick = (surface: Parameters<ClientModule<Props, S>>[1]): void => {
   const t = live.props.view.timeline.transport
   live.pres.advance(dt, t === 'live' || t === 'playing' || t === 'idle')
   aimCamera(live, live.regions.canvas, false)
+  const eased = stepPositions(live, dt)
   const moved = live.camera.glide(dt)
   const dot = t === 'live' ? live.pres.isDotLit() : true
   const dotFlipped = dot !== live.isDotLit
   live.isDotLit = dot
   const animating = live.props.view.agents.some(isRunning) || live.pres.isGlowing(live.props.view.runs)
-  if (animating || moved || dotFlipped || live.isDirty) {
+  if (animating || eased || moved || dotFlipped || live.isDirty) {
     live.isDirty = false
     surface.setState({ live, frame: s.frame + 1 })
   }
@@ -144,12 +140,12 @@ const Graph: ClientModule<Props, S> = (props, surface) => {
     surface.onKey(e => onKey(it, e))
   }
   const t = props.view.timeline
-  // A seek, or scrubbing while paused, adopts what is shown as seen. So does
-  // imported history renumbering the log, which also changes arrival order:
-  // the cards are laid out again in it.
+  // A seek, or scrubbing while paused, adopts what is shown as seen, and the
+  // cards land where they belong with no easing. So does imported history
+  // renumbering the log, which also changes arrival order and so the layout.
   const isRenumbered = props.view.renumbered !== live.props.view.renumbered
-  if (isRenumbered) live.relayoutSeq = -1
-  if (isRenumbered || t.transport === 'paused' || t.transport === 'history' || t.playhead < live.playhead) live.pres.adoptBaseline(props.view.seq)
+  const isJump = isFirst || isRenumbered || t.transport === 'paused' || t.transport === 'history' || t.playhead < live.playhead
+  if (isJump) live.pres.adoptBaseline(props.view.seq)
   live.playhead = t.playhead
   if (props.details?.agent !== live.props.details?.agent) live.detailScroll = 0
   live.props = props
@@ -157,7 +153,7 @@ const Graph: ClientModule<Props, S> = (props, surface) => {
   // A new size is no motion to animate: the camera lands at once.
   const isResized = live.regions.canvas.w !== r.canvas.w || live.regions.canvas.h !== r.canvas.h
   live.regions = r
-  syncPositions(live, props)
+  syncLayout(live, props, isJump)
   live.pres.observe(props.view.runs)
   applyWheel(live, props.ui.wheel)
   aimCamera(live, r.canvas, isFirst || isResized)

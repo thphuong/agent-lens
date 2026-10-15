@@ -31,8 +31,8 @@ These rules hold the design together. Break one and a known failure returns:
    records dated before the log began recording live (`liveSince` in the
    log meta), so nothing is counted twice. The import renumbers the log in
    time order, because the fold and the layout read seq as arrival order;
-   the Client then treats everything shown as seen and lays the cards out
-   again.
+   the Client then treats everything shown as seen, and the layout follows
+   from the new order.
    The import keeps at most 15,000 facts, so the log stays well inside the
    4 MiB `$.state` holds. When the transcript cannot be found or read,
    backfill from `$.session.messages` runs instead. After a hot reload of
@@ -149,8 +149,8 @@ them only after measuring again.
 | A TypeScript mod | Embedding an existing Rust terminal UI | Modules cannot run WebAssembly, and `$.process.spawn` has no interactive stdin. |
 | A fact log folded in place, with a full refold on every seek | Copying the model per fact, or keeping a ladder of snapshots | The copying fold was quadratic. A refold is cheap enough that the snapshot ladder was never needed; the timeline tests benchmark seeking. |
 | A fold that depends only on the set of facts | A fold that depends on arrival order | Backfill and live events arrive interleaved and duplicated. Keyed stores plus seq-wins make the order irrelevant, and a shuffle test checks it. |
-| Placing cards in arrival order, never moving an existing card | Laying the graph out again on every change | A card moving under the pointer breaks dragging and reading. `r` lays the graph out again on request. |
-| Siblings in waves: those that ran at the same time share a row of at most four, and a later wave starts a row below the parent's subtree, its edges along a spine | One row per parent, however many children; a wrap that follows the pane width | One long row made long sessions wide. Rows from the fold's wave index (the `wave` field) and a fixed width depend only on arrival order, so they never move a card; a wrap by pane width would move cards on every resize. The fold computes the wave because sending each agent's spawn and end seqs costs about 14,000 characters of props at 400 agents. |
+| Cards laid out by a pure function of the agents shown and the dragged positions, recomputed when either changes, frozen during a drag, and eased into place | Placing cards in arrival order, each fixed once placed | Positions that depended on history made replay differ from live, and made a subtree growing under an earlier row slide sideways, away from its parent. A dragged card keeps its slot, so a drag moves nothing else. |
+| Siblings in waves: those that ran at the same time share a row of at most four, and a later wave starts a row below the parent's subtree, its edges along a spine | One row per parent, however many children; a wrap that follows the pane width | One long row made long sessions wide. Rows from the fold's wave index (the `wave` field) and a fixed width depend only on arrival order, so they do not depend on the pane, and a resize moves nothing; a wrap by pane width would move cards on every resize. The fold computes the wave because sending each agent's spawn and end seqs costs about 14,000 characters of props at 400 agents. |
 | Live engine events, plus a one-time transcript import when `/viz` opens | Tailing transcript files on disk; backfill from message history alone | The engine delivers events with agent ids, so live data needs no tailing. Message history loses everything a compaction replaced and has no times, tokens or workflow agents; the transcript keeps them, and a 35.6 MB one streams and parses in about 0.4 s. |
 | One usage fact per model call, from `turn.step` | A turn's summed usage from `turn.complete` | ctx must be the latest call's context, not a turn's sum, and tok must count every call once. |
 | Synthetic test fixtures | Fixtures captured from real sessions | Real sessions carry personal paths and prompt text. |

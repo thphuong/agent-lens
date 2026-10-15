@@ -1,5 +1,5 @@
 // Composes the graph into a grid for one camera: group frames behind, then
-// edges, then cards on top.
+// edges, then cards on top, the cards in `onTop` last of all.
 
 import type { ViewAgent } from '../../types'
 import type { Chip } from './chips'
@@ -20,6 +20,8 @@ export type SceneLook = {
   borders?: ReadonlyMap<string, string>
   /** Each agent's chips. */
   chips?: (agent: ViewAgent) => Chip[]
+  /** Cards drawn over the others and hit first: dragged ones and what hangs under them. */
+  onTop?: ReadonlySet<string>
 }
 
 export const toScreen = (cam: Camera, r: Rect): Rect => {
@@ -30,8 +32,11 @@ export const toScreen = (cam: Camera, r: Rect): Rect => {
 
 /** Draws the graph into `g` through `cam`; answers each visible card's screen rect for hit-testing. */
 export const drawScene = (g: Grid, agents: readonly ViewAgent[], positions: Positions, cam: Camera, look: SceneLook = {}): Map<string, Rect> => {
+  const onTop = look.onTop
+  const ordered = onTop?.size ? [...agents.filter(a => !onTop.has(a.id)), ...agents.filter(a => onTop.has(a.id))] : agents
+  // In drawing order, so a hit-test that takes the last match takes the topmost card.
   const screen = new Map<string, Rect>()
-  for (const a of agents) {
+  for (const a of ordered) {
     const r = rectOf(a, positions)
     if (r) screen.set(a.id, toScreen(cam, r))
   }
@@ -82,7 +87,7 @@ export const drawScene = (g: Grid, agents: readonly ViewAgent[], positions: Posi
     ants: look.ants ? { edges: antEdges, phase: look.ants.phase, color: ANT } : undefined,
   })
 
-  for (const a of agents) {
+  for (const a of ordered) {
     const s = screen.get(a.id)
     if (!s || s.x >= g.w || s.y >= g.h || s.x + s.w <= 0 || s.y + s.h <= 0) continue
     const border = a.id === look.hover ? HOVER : a.id === look.selected ? GREY[4] : look.borders?.get(a.id)

@@ -1,12 +1,12 @@
 // Pointer input: a card clicked is selected, a card dragged is pinned where
 // it lands; the background pans; the timeline track seeks; the camera badge on
-// the status bar toggles follow and its layout button lays the cards out
-// afresh; a bare move hovers.
+// the status bar toggles follow and its layout button clears the dragged
+// positions; a bare move hovers.
 
 import type { ClientPointerEvent } from 'claude-code'
 
 import type { Wheel } from '../../types'
-import { cardAt, closeDetails, setMode, toggleFollow, within, type Live } from './live'
+import { cardAt, closeDetails, resetLayout, setMode, toggleFollow, within, type Live } from './live'
 import { trackIndexAt, trackOf } from './timeline-panel'
 
 /** How much one wheel tick zooms. */
@@ -22,7 +22,7 @@ const press = (live: Live, e: ClientPointerEvent): void => {
   const r = live.regions
   if (e.y === r.statusY) {
     if (within(e.x, e.y, live.cameraBadge)) toggleFollow(live)
-    else if (within(e.x, e.y, live.resetBadge)) live.outbox.push({ type: 'relayout' })
+    else if (within(e.x, e.y, live.resetBadge)) resetLayout(live)
     return
   }
   if (r.panel.h > 0 && within(e.x, e.y, trackOf(r.panel, r.isCompact))) {
@@ -71,7 +71,12 @@ const release = (live: Live): void => {
   // Selecting opens the details, so only a click selects; a drag only moves.
   if (!d.isMoved) return live.outbox.push({ type: 'select', id: d.id })
   const at = live.positions[d.id]
-  if (at) live.outbox.push({ type: 'pin', id: d.id, x: at.x, y: at.y })
+  if (!at) return
+  // Pinned here too, so the next layout keeps the card where it was dropped
+  // before the hooks module answers.
+  live.pins = { ...live.pins, [d.id]: at }
+  live.outbox.push({ type: 'pin', id: d.id, x: at.x, y: at.y })
+  live.isDirty = true
 }
 
 const hoverAt = (live: Live, e: ClientPointerEvent | undefined): void => {
@@ -89,6 +94,8 @@ export const onPointer = (live: Live, e: ClientPointerEvent): void => {
       if (e.button === 'left') press(live, e)
       break
     case 'move':
+      // No button held means the up was lost: the drag is over.
+      if (live.drag && e.button === undefined) release(live)
       if (live.drag) dragTo(live, e)
       else if (e.button === undefined) hoverAt(live, e)
       break

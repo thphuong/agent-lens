@@ -114,7 +114,7 @@ With the mouse:
   details to scroll them.
 - Click or drag along the timeline to seek.
 - Click `⌖ follow` / `⌖ manual` on the status bar to toggle follow, and
-  `↺ layout` to put moved cards back where they first appeared.
+  `↺ layout` to put dragged cards back into the layout.
 
 Panning or zooming by hand switches the camera to manual; `f` or the
 status-bar badge returns it to following the latest activity.

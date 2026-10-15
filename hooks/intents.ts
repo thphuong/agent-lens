@@ -105,7 +105,7 @@ export const applyIntents = (intents: readonly Intent[], timeline: Timeline, ui:
         next = { ...next, pinned: { ...next.pinned, [it.id]: { x: it.x, y: it.y } } }
         break
       case 'relayout':
-        next = { ...next, pinned: {}, relayoutSeq: next.relayoutSeq + 1 }
+        next = { ...next, pinned: {} }
         break
       case 'close':
         close = true

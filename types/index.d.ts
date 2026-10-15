@@ -77,8 +77,6 @@ export type UiState = {
   /** World positions of cards the person dragged. */
   pinned: Record<string, Point>
   wheel?: Wheel
-  /** Bumped by a relayout request so every Client instance re-places its cards. */
-  relayoutSeq: number
 }
 
 export type DisplayStatus = 'running' | 'idle' | 'done' | 'failed' | 'stopped'

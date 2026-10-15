@@ -4,4 +4,4 @@
 
 import type { UiState } from '../types'
 
-export const EMPTY_UI: UiState = { overlay: 'none', detailFollow: false, camera: 'follow', pinned: {}, relayoutSeq: 0 }
+export const EMPTY_UI: UiState = { overlay: 'none', detailFollow: false, camera: 'follow', pinned: {} }

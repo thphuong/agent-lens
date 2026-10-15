@@ -200,3 +200,47 @@ export const waterfall = (): Session => {
   s.finish(undefined)
   return s
 }
+
+/**
+ * Six agents run at the same time under main, so their row wraps; then the
+ * first of them spawns a child under the first row while the wrapped row is
+ * already shown.
+ */
+export const wrapped = (): Session => {
+  const s = new Session()
+  s.facts.push({ kind: 'agent', agent: MAIN, agentKind: 'main' })
+  s.prompt('fan out wide')
+  s.start()
+  const wide = Array.from({ length: 6 }, (_, k) => s.spawn({ description: `wide lens ${k}` }))
+  for (const id of wide) s.call(id, 'Read')
+  const late = s.spawn({ description: 'late child', parentAgentId: wide[0] })
+  s.call(late, 'Grep')
+  s.finish(late)
+  for (const id of wide) s.finish(id)
+  s.finish(undefined)
+  return s
+}
+
+/**
+ * An agent finishes, a later wave runs below it, and then the first agent is
+ * resumed and spawns a child of its own.
+ */
+export const resumed = (): Session => {
+  const s = new Session()
+  s.facts.push({ kind: 'agent', agent: MAIN, agentKind: 'main' })
+  s.prompt('look, then look again')
+  s.start()
+  const first = s.spawn({ description: 'first look' })
+  s.call(first, 'Read')
+  s.finish(first)
+  const second = s.spawn({ description: 'second look' })
+  s.call(second, 'Read')
+  s.finish(second)
+  s.spawn({ description: 'first look again', resume: { agentId: first } })
+  const child = s.spawn({ description: 'resumed child', parentAgentId: first })
+  s.call(child, 'Grep')
+  s.finish(child)
+  s.finish(first)
+  s.finish(undefined)
+  return s
+}

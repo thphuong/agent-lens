@@ -7,10 +7,13 @@ export const GLIDE_SECS = 0.35
 export const MIN_ZOOM = 0.3
 export const MAX_ZOOM = 2.5
 /** Within this distance (cells, zoom) the camera snaps to its target and stops moving. */
-const SNAP = 0.25
+export const SNAP = 0.25
 const SNAP_Z = 0.002
 
 export type View = { x: number; y: number; z: number }
+
+/** How far one step of `dtMs` closes the gap to a target, so anything that glides settles in about GLIDE_SECS. */
+export const glideK = (dtMs: number): number => 1 - Math.exp(-dtMs / ((GLIDE_SECS * 1000) / 3))
 
 const clampZ = (z: number) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z))
 
@@ -28,7 +31,7 @@ export class Camera implements View {
   glide(dtMs: number): boolean {
     const t = this.target
     if (!t) return false
-    const k = 1 - Math.exp(-dtMs / ((GLIDE_SECS * 1000) / 3))
+    const k = glideK(dtMs)
     this.x += (t.x - this.x) * k
     this.y += (t.y - this.y) * k
     this.z += (t.z - this.z) * k
