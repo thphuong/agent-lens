@@ -1,4 +1,4 @@
-# session-viz
+# agent-lens
 
 A Claude Code mod that draws the current session as a live graph in a
 docked pane: the main agent, every subagent it spawns, workflow runs
@@ -48,15 +48,15 @@ fixtures, zoomed out to fit.
 ## Install for development
 
 ```sh
-git clone <this repository> session-viz
-cd session-viz
+git clone <this repository> agent-lens
+cd agent-lens
 pnpm install         # TypeScript, for the typecheck only
 claude --plugin-dir "$PWD"
 ```
 
 Edits to the hooks module reload when the turn that saved them ends.
 Edits under `hooks/client/` load the next time the pane draws afresh, so
-run `/viz` again after changing them.
+run `/lens` again after changing them.
 
 `pnpm check` typechecks, runs the plugin tests and validates the
 plugin. [docs/architecture.md](./docs/architecture.md) explains how the
@@ -64,13 +64,13 @@ mod is built and why.
 
 ## Use
 
-Run `/viz` to open the pane. It docks beside the transcript when the
+Run `/lens` to open the pane. It docks beside the transcript when the
 terminal is wide enough and opens inline otherwise.
 
-The first `/viz` in a session reads the session's transcript files, so the
+The first `/lens` in a session reads the session's transcript files, so the
 graph shows everything from before as well: a resumed session, one
 restarted or compacted, or one recorded before the mod was installed. To
-see an old session, resume it with `claude --resume <id>` and run `/viz`.
+see an old session, resume it with `claude --resume <id>` and run `/lens`.
 The whole history is read, however long the session, and read again each
 time the mod reloads.
 

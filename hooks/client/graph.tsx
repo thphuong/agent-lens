@@ -122,7 +122,7 @@ const tick = (surface: Parameters<ClientModule<Props, S>>[1]): void => {
 const Graph: ClientModule<Props, S> = (props, surface) => {
   const { Text } = surface.elements
   // A hot reload can run this module against props an older hooks module built.
-  if (props?.v !== 1) return <Text dimColor>session-viz: waiting for the session…</Text>
+  if (props?.v !== 1) return <Text dimColor>agent-lens: waiting for the session…</Text>
   const cols = Math.max(1, Math.min(MAX_COLUMNS, surface.columns))
   const rows = Math.max(1, Math.min(Math.floor(MAX_CELLS / cols), surface.rows))
   const r = regions(cols, rows, props)

@@ -1,6 +1,6 @@
 # Architecture
 
-Why session-viz is shaped the way it is, and where each concern lives. The
+Why agent-lens is shaped the way it is, and where each concern lives. The
 [README](../README.md) covers installing and using the mod; the source files
 open with a comment that states what each one does.
 
@@ -28,7 +28,7 @@ These rules hold the design together. Break one and a known failure returns:
    restarts. History is imported from the session's transcript files
    ([`hooks/transcript.ts`](../hooks/transcript.ts),
    [`hooks/transcript-io.ts`](../hooks/transcript-io.ts)) and kept in
-   module memory only, with no cap on its size. The first `/viz` for a
+   module memory only, with no cap on its size. The first `/lens` for a
    log reads every record dated before the log began recording live
    (`liveSince` in the log meta). From then on every load of the log
    reads the transcript again, and the boundary moves to the load time:
@@ -42,7 +42,7 @@ These rules hold the design together. Break one and a known failure returns:
    because the fold and the layout read seq as arrival order; the Client
    then treats everything shown as seen, and the layout follows from the
    new order. When the transcript cannot be found or read, backfill from
-   `$.session.messages` runs instead, with prompts on the first `/viz`
+   `$.session.messages` runs instead, with prompts on the first `/lens`
    and without them on a reload. It has no times or token counts, keeps
    only the newest 4096 rows and has no workflow agents, so it is only a
    fallback.
@@ -76,7 +76,7 @@ These rules hold the design together. Break one and a known failure returns:
 ```mermaid
 flowchart LR
   EV["engine events"] --> IN["ingest → facts"]
-  TR["transcript files, on the first /viz and every load"] --> IMP["transcript reader → facts before the cutoff"]
+  TR["transcript files, on the first /lens and every load"] --> IMP["transcript reader → facts before the cutoff"]
   BF["$.session.messages backfill, if no transcript"] --> IN
   IN --> LOG["fact log: live facts ($.state), history (memory)"]
   IMP -- "adopted as history, renumbered in time order" --> LOG
@@ -95,7 +95,7 @@ the Client applies each tick once.
 
 | Concern | Owner |
 | --- | --- |
-| Registration, lifecycle, `/viz`, pane placement, fault handling | [`hooks/register.tsx`](../hooks/register.tsx), [`hooks/fault-gate.ts`](../hooks/fault-gate.ts) |
+| Registration, lifecycle, `/lens`, pane placement, fault handling | [`hooks/register.tsx`](../hooks/register.tsx), [`hooks/fault-gate.ts`](../hooks/fault-gate.ts) |
 | Engine events to facts | [`hooks/ingest.ts`](../hooks/ingest.ts), vocabulary in [`hooks/model/facts.ts`](../hooks/model/facts.ts) |
 | Transcript files to facts | [`hooks/transcript.ts`](../hooks/transcript.ts) (pure), [`hooks/transcript-io.ts`](../hooks/transcript-io.ts) (finding and reading the files) |
 | Facts to model | [`hooks/model/fold.ts`](../hooks/model/fold.ts), [`hooks/model/runs.ts`](../hooks/model/runs.ts) |
@@ -153,7 +153,7 @@ them only after measuring again.
 - **`$.agent.list()` drops agents that have ended and never lists workflow
   agents.** Workflow agents are grouped by `workflow.runId`, and their status
   comes from `turn.complete`.
-- **Plugin names starting with `claude-` are reserved.** Hence `session-viz`.
+- **Plugin names starting with `claude-` are reserved.** The mod's name avoids that prefix.
 
 ## Decisions and rejected alternatives
 
@@ -164,7 +164,7 @@ them only after measuring again.
 | A fold that depends only on the set of facts | A fold that depends on arrival order | Backfill and live events arrive interleaved and duplicated. Keyed stores plus seq-wins make the order irrelevant, and a shuffle test checks it. |
 | Cards laid out by a pure function of the agents shown and the dragged positions, recomputed when either changes, frozen during a drag, and eased into place | Placing cards in arrival order, each fixed once placed | Positions that depended on history made replay differ from live, and made a subtree growing under an earlier row slide sideways, away from its parent. A dragged card keeps its slot, so a drag moves nothing else. |
 | Siblings in waves: those that ran at the same time share a row of at most four, and a later wave starts a row below the parent's subtree, its edges along a spine | One row per parent, however many children; a wrap that follows the pane width | One long row made long sessions wide. Rows from the fold's wave index (the `wave` field) and a fixed width depend only on arrival order, so they do not depend on the pane, and a resize moves nothing; a wrap by pane width would move cards on every resize. The fold computes the wave because sending each agent's spawn and end seqs costs about 14,000 characters of props at 400 agents. |
-| Live engine events, plus a transcript import when `/viz` opens and on every later load, kept in memory | Tailing transcript files on disk; backfill from message history alone; persisting the import to `$.state` under a fact cap | The engine delivers events with agent ids, so live data needs no tailing. Message history loses everything a compaction replaced and has no times, tokens or workflow agents; the transcript keeps them, and a 35.6 MB one streams and parses in about 0.4 s. A capped import in `$.state` dropped the oldest tokens, calls and prompts of long sessions, and a reload left a gap the transcript can fill. |
+| Live engine events, plus a transcript import when `/lens` opens and on every later load, kept in memory | Tailing transcript files on disk; backfill from message history alone; persisting the import to `$.state` under a fact cap | The engine delivers events with agent ids, so live data needs no tailing. Message history loses everything a compaction replaced and has no times, tokens or workflow agents; the transcript keeps them, and a 35.6 MB one streams and parses in about 0.4 s. A capped import in `$.state` dropped the oldest tokens, calls and prompts of long sessions, and a reload left a gap the transcript can fill. |
 | A zoomable timeline track: a window over all the history, panned to hold the playhead, plus step and marker keys | Paging history in and out, or a fixed track over the whole session | With all history loaded, one column of a long session's track covered hundreds of facts, so a click could not land on one. The window is only a view, so replay, seeks and going live pan it without writing state. |
 | One usage fact per model call, from `turn.step` | A turn's summed usage from `turn.complete` | ctx must be the latest call's context, not a turn's sum, and tok must count every call once. |
 | Synthetic test fixtures | Fixtures captured from real sessions | Real sessions carry personal paths and prompt text. |

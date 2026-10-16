@@ -12,9 +12,9 @@ import { TranscriptBuilder } from './fixtures/transcript'
 const PROJECT = '/home/fake/.claude/projects/-fake-project'
 
 const PANE = {
-  plugin: 'session-viz',
+  plugin: 'agent-lens',
   component: 'Pane',
-  requestId: 'viz',
+  requestId: 'lens',
   props: { title: 'session graph', isFocused: false, bodyColumns: 87, placement: 'dock', scroll: { offset: 0, bodyRows: 32 }, view: {} },
 } as const
 
@@ -65,7 +65,7 @@ const engine = (...[$, on]: Parameters<TestBody>) => {
   on('session.id', () => ({ value: state.id }))
   on('session.messages', (_, e) => ({ value: state.history[`${state.id}:${e.agentId ?? MAIN}`] ?? [] }))
   on('agent.list', () => ({ value: [] }))
-  on('command.register', () => ({ value: { command: 'viz' } }))
+  on('command.register', () => ({ value: { command: 'lens' } }))
   on('tool.call', () => {
     state.toolCalls += 1
     return { result: {} }
@@ -78,8 +78,8 @@ const engine = (...[$, on]: Parameters<TestBody>) => {
     await ui.resize({ columns: 87, rows: 32 })
     return ui
   }
-  const viz = async () => {
-    await $.command.run({ command: 'viz', args: '' } as never)
+  const lens = async () => {
+    await $.command.run({ command: 'lens', args: '' } as never)
     await clock.advance(300)
   }
   /** What the pane is drawn from: the props its Client last received. */
@@ -107,7 +107,7 @@ const engine = (...[$, on]: Parameters<TestBody>) => {
     }
     for (const j of b.files.journals) state.files[`${PROJECT}/${id}/subagents/workflows/${j.runId}/journal.jsonl`] = j.lines.join('\n')
   }
-  return { clock, state, writes, reads, logs, open, viz, view, atPrompt, logged, transcript }
+  return { clock, state, writes, reads, logs, open, lens, view, atPrompt, logged, transcript }
 }
 
 describe('session end', () => {
@@ -137,7 +137,7 @@ describe('session end', () => {
   })
 
   test('a resume starts over from the resumed session’s history', async ($, on) => {
-    const { clock, state, open, viz } = engine($, on)
+    const { clock, state, open, lens } = engine($, on)
     await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
     await $.tool.call({ tool: 'Read', command: 'x' } as never)
     await clock.advance(300)
@@ -150,8 +150,8 @@ describe('session end', () => {
     state.id = 's2'
     await $.session.end({ reason: 'resume', sessionId: 's1', resume: { id: 's2' } })
     await clock.advance(300)
-    // With no transcript to read, /viz backfills from the message history.
-    await viz()
+    // With no transcript to read, /lens backfills from the message history.
+    await lens()
     const ui = await open()
     expect(await ui.find({ type: 'Text', text: /old survey/, in: 'graph' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /1 agents · /, in: 'graph' })).toBeDefined()
@@ -174,12 +174,12 @@ const earlier = () => {
 }
 
 describe('import', () => {
-  test('/viz imports the transcript once, with times, and keeps it out of session state', async ($, on) => {
-    const { reads, open, viz, view, atPrompt, logged, transcript } = engine($, on)
+  test('/lens imports the transcript once, with times, and keeps it out of session state', async ($, on) => {
+    const { reads, open, lens, view, atPrompt, logged, transcript } = engine($, on)
     const b = earlier()
     transcript('s1', b)
     await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-    await viz()
+    await lens()
     const ui = await open()
     const agents = (await view(ui)).agents
     expect(agents.find(a => a.id === 'a1')).toMatchObject({ label: 'old survey', tok: b.tokens.get('a1') })
@@ -191,13 +191,13 @@ describe('import', () => {
     expect((logged() ?? []).some(f => f.at !== undefined && f.at < Date.now() - 60_000)).toBe(false)
 
     const before = reads.length
-    await viz()
+    await lens()
     expect(reads.length).toBe(before)
     expect(reads.some(p => p.endsWith('/s1.jsonl'))).toBe(true)
   })
 
   test('what happened after the log began comes from live hooks only', async ($, on) => {
-    const { viz, open, view, atPrompt, transcript } = engine($, on)
+    const { lens, open, view, atPrompt, transcript } = engine($, on)
     const b = earlier()
     on('turn.step', async function* () {
       return {
@@ -220,7 +220,7 @@ describe('import', () => {
     b.prompt('live fake prompt')
     b.request('main', [], { input: 5, output: 5 })
     transcript('s1', b)
-    await viz()
+    await lens()
     const ui = await open()
     expect((await view(ui)).timeline.prompts).toHaveLength(2)
     // The earlier request is imported; the live one is the step, not its transcript copy.
@@ -231,18 +231,18 @@ describe('import', () => {
     await ui.unmount()
   })
 
-  test('with no transcript, /viz backfills from the message history and says why once', async ($, on) => {
-    const { state, logs, viz, logged } = engine($, on)
+  test('with no transcript, /lens backfills from the message history and says why once', async ($, on) => {
+    const { state, logs, lens, logged } = engine($, on)
     state.history['s1:main'] = [row({ role: 'user', text: 'backfilled fake prompt' })]
     await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-    await viz()
-    await viz()
+    await lens()
+    await lens()
     expect(logged().filter(f => f.kind === 'prompt')).toEqual([expect.objectContaining({ line: 'backfilled fake prompt' })])
     expect(logs.filter(l => l.includes('not the transcript'))).toHaveLength(1)
   })
 
   test('a reload of an imported log reads the transcript again, which covers what the module missed', async ($, on) => {
-    const { clock, reads, viz, open, view, logged, transcript } = engine($, on)
+    const { clock, reads, lens, open, view, logged, transcript } = engine($, on)
     on('turn.step', async function* () {
       return {
         turnId: 't1',
@@ -256,7 +256,7 @@ describe('import', () => {
     const b = earlier()
     transcript('s1', b)
     await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-    await viz()
+    await lens()
     // A model call seen live, which the transcript also records.
     const step = $.turn.step({ turnId: 't1', index: 0, model: 'm', messageCount: 1 })
     while (!(await step.next()).done);
@@ -276,7 +276,7 @@ describe('import', () => {
 
     const before = reads.filter(p => p.endsWith('/s1.jsonl')).length
     await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-    await viz()
+    await lens()
     expect(reads.filter(p => p.endsWith('/s1.jsonl')).length).toBe(before + 1)
     const late = $.turn.step({ turnId: 't1', index: 0, model: 'm', messageCount: 1 })
     while (!(await late.next()).done);
@@ -294,10 +294,10 @@ describe('import', () => {
   })
 
   test('a reload when the transcript can no longer be read keeps the facts seen live and backfills', async ($, on) => {
-    const { clock, state, viz, open, view, logged, transcript } = engine($, on)
+    const { clock, state, lens, open, view, logged, transcript } = engine($, on)
     transcript('s1', earlier())
     await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-    await viz()
+    await lens()
     await $.tool.call({ tool: 'Read', command: 'x' } as never)
     await clock.advance(300)
     state.files = {}
@@ -306,7 +306,7 @@ describe('import', () => {
       row({ toolUses: [{ tool_use_id: 'u9', tool: 'Agent', input: { subagent_type: 'Explore', description: 'missed look' }, agentId: 'a9', result: {} }] }),
     ]
     await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-    await viz()
+    await lens()
     const ui = await open()
     const { agents, timeline } = await view(ui)
     expect(agents.find(a => a.id === 'a9')?.label).toBe('missed look')
@@ -318,12 +318,12 @@ describe('import', () => {
   })
 
   test('observer hooks pass straight through while an import is reading', async ($, on) => {
-    const { state, viz, transcript } = engine($, on)
+    const { state, lens, transcript } = engine($, on)
     let release = () => {}
     state.gate = new Promise(r => (release = r))
     transcript('s1', earlier())
     await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-    const opening = viz()
+    const opening = lens()
     expect(await $.tool.call({ tool: 'Bash', command: 'x' } as never)).toEqual({ result: {} })
     expect(state.toolCalls).toBe(1)
     release()

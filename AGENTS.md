@@ -1,4 +1,4 @@
-# session-viz
+# agent-lens
 
 Read [docs/architecture.md](docs/architecture.md) before changing how data
 flows between the hooks module and the Client.
@@ -9,9 +9,9 @@ flows between the hooks module and the Client.
 - There is no build step. The engine loads the TypeScript in `hooks/`
   directly, so do not add a bundler or an output folder.
 - Run the mod for a manual check with `claude --plugin-dir "$PWD"` from the
-  repo root, then `/viz`. Hooks-module edits reload when the turn that saved
+  repo root, then `/lens`. Hooks-module edits reload when the turn that saved
   them ends. Edits under `hooks/client/` load only when the pane draws
-  afresh, so run `/viz` again.
+  afresh, so run `/lens` again.
 - While iterating, `pnpm typecheck` is the fast check. `pnpm test` has no
   filter and always runs every test file. `pnpm validate` checks the plugin
   manifest and hooks.

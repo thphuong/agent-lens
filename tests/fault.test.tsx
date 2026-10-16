@@ -3,9 +3,9 @@ import { describe, expect, test } from 'claude-code/testing'
 import { FAULT_WINDOW_MS, FaultGate } from '../hooks/fault-gate'
 
 const PANE = {
-  plugin: 'session-viz',
+  plugin: 'agent-lens',
   component: 'Pane',
-  requestId: 'viz',
+  requestId: 'lens',
   props: {
     title: 'session graph',
     isFocused: false,

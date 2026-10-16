@@ -5,9 +5,9 @@ import { FRAME_MS } from '../hooks/frame'
 import type { Props } from '../types'
 
 const PANE = {
-  plugin: 'session-viz',
+  plugin: 'agent-lens',
   component: 'Pane',
-  requestId: 'viz',
+  requestId: 'lens',
   props: { title: 'session graph', isFocused: false, bodyColumns: 120, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 
@@ -15,7 +15,7 @@ test('a remount neither flashes settled chips nor loses the camera mode', async 
   on('session.id', () => ({ value: 's1' }))
   on('session.messages', () => ({ value: [] }))
   on('agent.list', () => ({ value: [] }))
-  on('command.register', () => ({ value: { command: 'viz' } }))
+  on('command.register', () => ({ value: { command: 'lens' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('tool.call', () => ({ result: {} }))
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
@@ -40,7 +40,7 @@ test('a zoomed track keeps its window across a remount', async ($, on) => {
   on('session.id', () => ({ value: 's1' }))
   on('session.messages', () => ({ value: [] }))
   on('agent.list', () => ({ value: [] }))
-  on('command.register', () => ({ value: { command: 'viz' } }))
+  on('command.register', () => ({ value: { command: 'lens' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('tool.call', () => ({ result: {} }))
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
@@ -90,7 +90,7 @@ test('the cards lie where a fresh mount puts them, whether reached live or by a 
   on('session.id', () => ({ value: 's1' }))
   on('session.messages', () => ({ value: [] }))
   on('agent.list', () => ({ value: [] }))
-  on('command.register', () => ({ value: { command: 'viz' } }))
+  on('command.register', () => ({ value: { command: 'lens' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('tool.call', () => ({ result: {} }))
   let n = 0

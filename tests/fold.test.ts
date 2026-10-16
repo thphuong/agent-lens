@@ -241,7 +241,7 @@ describe('lifecycle', () => {
 
   test('main is running from its turn start to its end; a command alone leaves it idle', () => {
     const s = new Session()
-    s.prompt('/viz')
+    s.prompt('/lens')
     expect(byId(s.numbered()).get('main')?.status).toBe('idle')
     s.start()
     expect(byId(s.numbered()).get('main')?.status).toBe('running')

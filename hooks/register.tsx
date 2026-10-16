@@ -15,10 +15,10 @@ import { cellText } from './text'
 import { importTranscript, type FilePort } from './transcript-io'
 import { EMPTY_UI } from './uistate'
 
-const PANE = 'viz'
-const META = { plugin: 'session-viz', key: 'logMeta' } as const
-const CHUNK = { plugin: 'session-viz', key: 'logChunk' } as const
-const uiAtom = atom({ plugin: 'session-viz', key: 'ui' } as const, EMPTY_UI, { shape: 'ui-1' })
+const PANE = 'lens'
+const META = { plugin: 'agent-lens', key: 'logMeta' } as const
+const CHUNK = { plugin: 'agent-lens', key: 'logChunk' } as const
+const uiAtom = atom({ plugin: 'agent-lens', key: 'ui' } as const, EMPTY_UI, { shape: 'ui-1' })
 
 // Module state starts over on a hot reload: the log reloads its live facts
 // from `$.state` and its history from the transcript, and the timeline
@@ -68,7 +68,7 @@ const warned = new Set<string>()
 const warn = ($: EngineInterface, kind: string, err: unknown) => {
   if (warned.has(kind)) return
   warned.add(kind)
-  $.ui.log(`session-viz: ${kind} ingest failed: ${err instanceof Error ? err.message : String(err)}`, { to: 'debug' })
+  $.ui.log(`agent-lens: ${kind} ingest failed: ${err instanceof Error ? err.message : String(err)}`, { to: 'debug' })
 }
 
 // Ingest work runs in order on its own queue, never awaited by an observed
@@ -123,10 +123,10 @@ const importHistory = async ($: EngineInterface, loadAt?: number) => {
         }))
   if ('reason' in r || r.records === 0) {
     const why = 'reason' in r ? r.reason : 'the transcript holds no messages'
-    $.ui.log(`session-viz: history from the message list, not the transcript: ${why}`, { to: 'debug' })
+    $.ui.log(`agent-lens: history from the message list, not the transcript: ${why}`, { to: 'debug' })
     await fill($, loadAt === undefined)
   } else {
-    if (r.skipped > 0) $.ui.log(`session-viz: skipped ${r.skipped} transcript lines it could not read`, { to: 'debug' })
+    if (r.skipped > 0) $.ui.log(`agent-lens: skipped ${r.skipped} transcript lines it could not read`, { to: 'debug' })
     log.adopt(portFor($), r.facts, cutoff)
     await clearTrack($)
     changed($)
@@ -235,7 +235,7 @@ const ingest = ($: EngineInterface, kind: string, translate: () => NewFact[]) =>
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'viz', description: 'Open the session graph pane' })
+    await $.command.register({ name: 'lens', description: 'Open the session graph pane' })
     enqueue($, 'session.start', () => load($))
     return next(e)
   })
@@ -289,15 +289,15 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // A Client that keeps failing is left out of the pane until /viz asks again.
+  // A Client that keeps failing is left out of the pane until /lens asks again.
   on('ui.fault', { requestId: PANE }, async ($, e, next) => {
     if (faults.record(Date.now())) {
-      $.ui.log(`session-viz: graph paused after repeated errors (${e.phase}): ${e.reason}`, { to: 'debug' })
+      $.ui.log(`agent-lens: graph paused after repeated errors (${e.phase}): ${e.reason}`, { to: 'debug' })
     }
     return next(e)
   })
 
-  on('command.run', { command: 'viz' }, async $ => {
+  on('command.run', { command: 'lens' }, async $ => {
     if (faults.reset()) $.ui.invalidate('ui.render')
     if (!log.imported) enqueue($, 'import', () => importHistory($))
     const opened = await $.ui.open({ id: PANE, title: 'session graph' })
@@ -335,7 +335,7 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Text } = $.ui.resolve(e)
     if (e.surface !== 'terminal') return <Text>The session graph draws on the terminal only.</Text>
-    if (faults.isPaused) return <Text dimColor>graph paused after an error — /viz to retry</Text>
+    if (faults.isPaused) return <Text dimColor>graph paused after an error — /lens to retry</Text>
     const { Client } = $.ui.resolve(e)
     const bodyRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 24
     const props = propsFor($, await read($, uiAtom))

@@ -1,5 +1,5 @@
 {
-  "name": "session-viz",
+  "name": "agent-lens",
   "version": "0.1.0",
   "description": "Draws the current session's agents and tool calls as a live, animated, scrubbable graph in a docked pane",
   "license": "MIT",

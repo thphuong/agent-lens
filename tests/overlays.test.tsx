@@ -15,9 +15,9 @@ import type { Transport, ViewRun } from '../types'
 import { reference } from './fixtures/generate'
 
 const PANE = {
-  plugin: 'session-viz',
+  plugin: 'agent-lens',
   component: 'Pane',
-  requestId: 'viz',
+  requestId: 'lens',
   props: { title: 'session graph', isFocused: false, bodyColumns: 87, placement: 'dock', scroll: { offset: 0, bodyRows: 32 }, view: {} },
 } as const
 

@@ -1,9 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 
 const PANE = {
-  plugin: 'session-viz',
+  plugin: 'agent-lens',
   component: 'Pane',
-  requestId: 'viz',
+  requestId: 'lens',
   props: {
     title: 'session graph',
     isFocused: false,

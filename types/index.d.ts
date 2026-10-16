@@ -1,4 +1,4 @@
-// The state contract of session-viz, and the types its hooks module and its
+// The state contract of agent-lens, and the types its hooks module and its
 // Client surface module share.
 
 /** What a card in the graph stands for. */
@@ -250,7 +250,7 @@ export type IntentBatch = { intents: Intent[]; renumbered?: number }
 
 declare module 'claude-code' {
   interface PluginState {
-    'session-viz': {
+    'agent-lens': {
       logMeta: LogMeta
       logChunk: StateFamily<Fact[]>
       ui: Shaped<UiState>
