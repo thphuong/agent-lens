@@ -21,29 +21,37 @@ The mod runs as two modules with different lifetimes:
 
 These rules hold the design together. Break one and a known failure returns:
 
-1. **The log lives in `$.state`; history comes from the transcript.**
+1. **Live facts live in `$.state`; history comes from the transcript.**
    Module memory dies on a hot reload or a worker respawn, so
-   [`hooks/persist.ts`](../hooks/persist.ts) mirrors the log to `$.state`
-   in chunks. `$.state` itself is lost when Claude Code restarts. The first
-   `/viz` for a log therefore imports the session's transcript files
+   [`hooks/persist.ts`](../hooks/persist.ts) mirrors the facts seen live
+   to `$.state` in chunks. `$.state` itself is lost when Claude Code
+   restarts. History is imported from the session's transcript files
    ([`hooks/transcript.ts`](../hooks/transcript.ts),
-   [`hooks/transcript-io.ts`](../hooks/transcript-io.ts)), keeping only
-   records dated before the log began recording live (`liveSince` in the
-   log meta), so nothing is counted twice. The import renumbers the log in
-   time order, because the fold and the layout read seq as arrival order;
-   the Client then treats everything shown as seen, and the layout follows
-   from the new order.
-   The import keeps at most 15,000 facts, so the log stays well inside the
-   4 MiB `$.state` holds. When the transcript cannot be found or read,
-   backfill from `$.session.messages` runs instead. After a hot reload of
-   an imported log, backfill without prompts fills in what the module
-   missed while it was down. It has no times or token counts,
-   keeps only the newest 4096 rows and has no workflow agents, so it is
-   only a fallback.
+   [`hooks/transcript-io.ts`](../hooks/transcript-io.ts)) and kept in
+   module memory only, with no cap on its size. The first `/viz` for a
+   log reads every record dated before the log began recording live
+   (`liveSince` in the log meta). From then on every load of the log
+   reads the transcript again, and the boundary moves to the load time:
+   the transcript supplies everything before it, including what happened
+   while the module was down, and the live facts persisted before it are
+   dropped. A reload therefore shows what a restart would, and nothing is
+   counted twice, since live and imported facts for the same model call
+   carry different dedupe keys and only the one time boundary keeps them
+   apart. A request still being written at the cutoff, with no record yet
+   saying why the model stopped, is left to the live hooks. Each import renumbers the log in time order, history first,
+   because the fold and the layout read seq as arrival order; the Client
+   then treats everything shown as seen, and the layout follows from the
+   new order. When the transcript cannot be found or read, backfill from
+   `$.session.messages` runs instead, with prompts on the first `/viz`
+   and without them on a reload. It has no times or token counts, keeps
+   only the newest 4096 rows and has no workflow agents, so it is only a
+   fallback.
 2. **Interface state lives in the hooks module.** The selection, the open
-   overlay, the camera mode and the dragged card positions sit in `$.state`
+   overlay, the camera mode, the dragged card positions and the timeline
+   track's zoom window sit in `$.state`
    ([`hooks/uistate.ts`](../hooks/uistate.ts)), so a remount or a reload
-   restores them.
+   restores them. The zoom window indexes facts, so it is cleared when an
+   import renumbers the log.
 3. **There is one props builder.** `ui.render` and `ui.message` both answer
    with [`buildProps`](../hooks/props.ts). An answer to `ui.message` lasts
    only until the next redraw, so a second builder would drop the details
@@ -68,10 +76,10 @@ These rules hold the design together. Break one and a known failure returns:
 ```mermaid
 flowchart LR
   EV["engine events"] --> IN["ingest → facts"]
-  TR["transcript files, on the first /viz"] --> IMP["transcript reader → facts before liveSince"]
+  TR["transcript files, on the first /viz and every load"] --> IMP["transcript reader → facts before the cutoff"]
   BF["$.session.messages backfill, if no transcript"] --> IN
-  IN --> LOG["fact log ($.state)"]
-  IMP -- "merged, renumbered in time order" --> LOG
+  IN --> LOG["fact log: live facts ($.state), history (memory)"]
+  IMP -- "adopted as history, renumbered in time order" --> LOG
   LOG --> FOLD["fold → SessionModel"] --> TL["timeline playhead"] --> PROPS["buildProps"]
   UI["ui state ($.state)"] --> PROPS
   PROPS --> CL["Client: layout · camera · paint"]
@@ -121,8 +129,13 @@ them only after measuring again.
   fullscreen view. The inline fallback draws a compact layout.
 - **`session.start` does not fire for `/clear`.** The mod resets on
   `session.end` with reason `clear` or `resume`.
-- **`$.state` survives hot reloads, not a restart.** History after a
-  restart comes from the transcript import.
+- **`$.state` survives hot reloads, not a restart, and holds 4 MiB for
+  the whole mod.** Only live facts are kept there; history comes from the
+  transcript on every load. A fold of 63,500 facts per seek measured
+  under 8 ms, so the whole history fits in memory. A log kept before
+  history moved to memory has its imported part loaded as history, and
+  the chunks it filled are emptied on the next flush, since `$.state`
+  has no delete.
 - **`$.fs.read` refuses files over 4 MiB, and `$.process.run` cuts stdout
   at 4 MiB.** Larger transcripts (35.6 MB seen) are streamed through
   `$.process.spawn(['cat', path])`; with no `cat`, as on Windows, the
@@ -151,7 +164,8 @@ them only after measuring again.
 | A fold that depends only on the set of facts | A fold that depends on arrival order | Backfill and live events arrive interleaved and duplicated. Keyed stores plus seq-wins make the order irrelevant, and a shuffle test checks it. |
 | Cards laid out by a pure function of the agents shown and the dragged positions, recomputed when either changes, frozen during a drag, and eased into place | Placing cards in arrival order, each fixed once placed | Positions that depended on history made replay differ from live, and made a subtree growing under an earlier row slide sideways, away from its parent. A dragged card keeps its slot, so a drag moves nothing else. |
 | Siblings in waves: those that ran at the same time share a row of at most four, and a later wave starts a row below the parent's subtree, its edges along a spine | One row per parent, however many children; a wrap that follows the pane width | One long row made long sessions wide. Rows from the fold's wave index (the `wave` field) and a fixed width depend only on arrival order, so they do not depend on the pane, and a resize moves nothing; a wrap by pane width would move cards on every resize. The fold computes the wave because sending each agent's spawn and end seqs costs about 14,000 characters of props at 400 agents. |
-| Live engine events, plus a one-time transcript import when `/viz` opens | Tailing transcript files on disk; backfill from message history alone | The engine delivers events with agent ids, so live data needs no tailing. Message history loses everything a compaction replaced and has no times, tokens or workflow agents; the transcript keeps them, and a 35.6 MB one streams and parses in about 0.4 s. |
+| Live engine events, plus a transcript import when `/viz` opens and on every later load, kept in memory | Tailing transcript files on disk; backfill from message history alone; persisting the import to `$.state` under a fact cap | The engine delivers events with agent ids, so live data needs no tailing. Message history loses everything a compaction replaced and has no times, tokens or workflow agents; the transcript keeps them, and a 35.6 MB one streams and parses in about 0.4 s. A capped import in `$.state` dropped the oldest tokens, calls and prompts of long sessions, and a reload left a gap the transcript can fill. |
+| A zoomable timeline track: a window over all the history, panned to hold the playhead, plus step and marker keys | Paging history in and out, or a fixed track over the whole session | With all history loaded, one column of a long session's track covered hundreds of facts, so a click could not land on one. The window is only a view, so replay, seeks and going live pan it without writing state. |
 | One usage fact per model call, from `turn.step` | A turn's summed usage from `turn.complete` | ctx must be the latest call's context, not a turn's sum, and tok must count every call once. |
 | Synthetic test fixtures | Fixtures captured from real sessions | Real sessions carry personal paths and prompt text. |
 

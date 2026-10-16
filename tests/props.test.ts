@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import { applyIntents, parseIntents } from '../hooks/intents'
 import { Timeline } from '../hooks/model/timeline'
-import { buildProps } from '../hooks/props'
+import { BUDGET, buildProps, SPARK_BUCKETS } from '../hooks/props'
 import { EMPTY_UI } from '../hooks/uistate'
 import type { UiState } from '../types'
 import { large, reference, Session } from './fixtures/generate'
@@ -44,6 +44,82 @@ describe('size budget', () => {
     const props = buildProps({ timeline: timelineOf(reference()), ui: EMPTY_UI, now: 0, prompts: new Map() })
     expect(props.degrade).toBe(0)
     expect(props.view.runs.length).toBeGreaterThan(0)
+  })
+})
+
+describe('track window', () => {
+  test('zoomed, the spark and markers cover the window and an overview the whole timeline', () => {
+    const t = timelineOf(large(20, 2000))
+    t.seek(1500)
+    const ui: UiState = { ...EMPTY_UI, track: { from: 1200, to: 1600 } }
+    const { timeline } = buildProps({ timeline: t, ui, now: 0, prompts: new Map() }).view
+    expect(timeline).toMatchObject({ from: 1200, to: 1600, length: t.length })
+    const toolStarts = t.order.slice(1200, 1600).filter(f => f.kind === 'toolStart').length
+    expect(timeline.spark.reduce((a, b) => a + b, 0)).toBe(toolStarts)
+    expect(timeline.overview!.reduce((a, b) => a + b, 0)).toBe(t.order.filter(f => f.kind === 'toolStart').length)
+    for (const i of [...timeline.spawns, ...timeline.fails, ...timeline.gaps, ...timeline.prompts]) expect(i >= 1200 && i < 1600).toBe(true)
+    expect(timeline.spawns.length).toBeLessThan(t.markers().spawns.length)
+
+    const whole = buildProps({ timeline: t, ui: EMPTY_UI, now: 0, prompts: new Map() }).view.timeline
+    expect(whole).toMatchObject({ from: 0, to: t.length })
+    expect(whole.overview).toBeUndefined()
+  })
+
+  test('a large timeline stays under budget, zoomed or not', () => {
+    const t = timelineOf(large(400, 10_000))
+    const ui: UiState = { ...EMPTY_UI, overlay: 'info', detailFollow: true }
+    for (const track of [undefined, { from: 0, to: 80 }, { from: 5000, to: 9000 }]) {
+      const props = buildProps({ timeline: t, ui: { ...ui, track }, now: 0, prompts: new Map([['main', 'p'.repeat(600)]]) })
+      expect(JSON.stringify(props).length).toBeLessThan(100_000)
+    }
+  })
+
+  test('thousands of markers stay bounded: at most one per bucket, exact once zoomed in', () => {
+    const s = new Session()
+    for (let i = 0; i < 3000; i++) {
+      s.prompt(`p${i}`)
+      s.call(undefined, 'Read', true)
+    }
+    const t = timelineOf(s)
+    const ui: UiState = { ...EMPTY_UI, overlay: 'info', detailFollow: true }
+    const props = buildProps({ timeline: t, ui, now: 0, prompts: new Map() })
+    expect(props.view.timeline.prompts.length).toBeLessThanOrEqual(SPARK_BUCKETS)
+    expect(props.view.timeline.fails.length).toBeLessThanOrEqual(SPARK_BUCKETS)
+    expect(JSON.stringify(props).length).toBeLessThan(BUDGET)
+    const all = t.markers().prompts
+    const near = buildProps({ timeline: t, ui: { ...ui, track: { from: t.length - 100, to: t.length } }, now: 0, prompts: new Map() }).view.timeline
+    expect(near.prompts).toEqual(all.filter(i => i >= t.length - 100))
+  })
+
+  test('a track window built before the log was renumbered is dropped', () => {
+    const post = { intents: [{ type: 'track', from: 2, to: 9 }, { type: 'live' }], renumbered: 1 }
+    expect(parseIntents(post, new Set(), 2)).toEqual([{ type: 'live' }])
+    expect(parseIntents(post, new Set(), 1)).toHaveLength(2)
+  })
+
+  test('track intents need whole numbers in order, and clear with from null', () => {
+    const got = parseIntents(
+      {
+        intents: [
+          { type: 'track', from: 5, to: 5 },
+          { type: 'track', from: 9, to: 2 },
+          { type: 'track', from: 1.5, to: 9 },
+          { type: 'track', from: 1, to: Infinity },
+          { type: 'track', from: '1', to: 9 },
+          { type: 'track', from: 1 },
+          { type: 'track', from: 2, to: 90 },
+          { type: 'track', from: null },
+        ],
+      },
+      new Set(),
+    )
+    expect(got).toEqual([
+      { type: 'track', from: 2, to: 90 },
+      { type: 'track', from: null },
+    ])
+    const t = timelineOf(reference())
+    expect(applyIntents([got[0]!], t, EMPTY_UI).ui.track).toEqual({ from: 2, to: 90 })
+    expect('track' in applyIntents(got, t, EMPTY_UI).ui).toBe(false)
   })
 })
 
@@ -93,6 +169,9 @@ describe('intents', () => {
           { type: 'pin', id: 'a1', x: 3.6, y: 1e12 },
           { type: 'overlay', overlay: 'evil' },
           { type: 'speed', speed: 7 },
+          { type: 'step', dir: 2 },
+          { type: 'seekMarker' },
+          { type: 'step', dir: -1 },
           'junk',
         ],
       },
@@ -102,9 +181,10 @@ describe('intents', () => {
       { type: 'seek', to: 1e9 },
       { type: 'select', id: 'a1' },
       { type: 'pin', id: 'a1', x: 4, y: 100_000 },
+      { type: 'step', dir: -1 },
     ])
     const t = timelineOf(reference())
-    applyIntents(got, t, EMPTY_UI)
+    applyIntents(got.slice(0, -1), t, EMPTY_UI)
     expect(t.playhead).toBe(t.length)
   })
 

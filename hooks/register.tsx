@@ -20,8 +20,9 @@ const META = { plugin: 'session-viz', key: 'logMeta' } as const
 const CHUNK = { plugin: 'session-viz', key: 'logChunk' } as const
 const uiAtom = atom({ plugin: 'session-viz', key: 'ui' } as const, EMPTY_UI, { shape: 'ui-1' })
 
-// Module state starts over on a hot reload: the log reloads itself from
-// `$.state`, and the timeline returns to live.
+// Module state starts over on a hot reload: the log reloads its live facts
+// from `$.state` and its history from the transcript, and the timeline
+// returns to live.
 const log = new FactLog()
 const timeline = new Timeline()
 /** Opening prompts fetched for details, by agent id, sanitised. */
@@ -77,6 +78,9 @@ const enqueue = ($: EngineInterface, kind: string, work: () => Promise<void>) =>
   queue = queue.then(work).catch(err => warn($, kind, err))
 }
 
+/** The track's window indexes facts: an import that renumbers them, or undated facts sorted in first, moves them. */
+const clearTrack = ($: EngineInterface) => update($, uiAtom, ({ track: _, ...ui }) => ui)
+
 /** Backfills from the message history; its prompts have no turn to dedupe by, so `withPrompts` false leaves them out. */
 const fill = async ($: EngineInterface, withPrompts: boolean) => {
   const facts = await backfill(
@@ -86,7 +90,7 @@ const fill = async ($: EngineInterface, withPrompts: boolean) => {
     },
     withPrompts && !log.facts.some(f => f.kind === 'prompt'),
   )
-  log.append(portFor($), facts)
+  if (log.append(portFor($), facts).length > 0) await clearTrack($)
   changed($)
 }
 
@@ -97,16 +101,19 @@ const changed = ($: EngineInterface) => {
 }
 
 /**
- * Imports the session's history from its transcript, once per log; when the
- * transcript cannot be found or read, backfills from the message history
- * instead. Only records dated before the log began recording live are read.
+ * Imports the session's history from its transcript, reading only records
+ * dated before the cutoff. The first time, the cutoff is when the log began
+ * recording live; a load passes its own start, so the transcript also covers
+ * what happened while the module was down. When the transcript cannot be
+ * found or read, backfills from the message history instead, with prompts
+ * only the first time: a backfilled prompt has no turn to dedupe by.
  */
-const importHistory = async ($: EngineInterface) => {
+const importHistory = async ($: EngineInterface, loadAt?: number) => {
   await ensureSession($)
-  if (log.imported) return
+  if (loadAt === undefined && log.imported) return
+  let cutoff = loadAt ?? log.liveSince
   // A fact observed before the log noted its start still counts as live.
-  let cutoff = log.liveSince
-  for (const f of log.facts) if (f.at !== undefined && f.at < cutoff) cutoff = f.at
+  if (loadAt === undefined) for (const f of log.facts) if (f.at !== undefined && f.at < cutoff) cutoff = f.at
   const dir = await configDir($).catch(() => undefined)
   const r =
     dir === undefined
@@ -117,10 +124,11 @@ const importHistory = async ($: EngineInterface) => {
   if ('reason' in r || r.records === 0) {
     const why = 'reason' in r ? r.reason : 'the transcript holds no messages'
     $.ui.log(`session-viz: history from the message list, not the transcript: ${why}`, { to: 'debug' })
-    await fill($, true)
+    await fill($, loadAt === undefined)
   } else {
     if (r.skipped > 0) $.ui.log(`session-viz: skipped ${r.skipped} transcript lines it could not read`, { to: 'debug' })
-    log.merge(portFor($), r.facts)
+    log.adopt(portFor($), r.facts, cutoff)
+    await clearTrack($)
     changed($)
   }
   log.markImported(portFor($))
@@ -140,13 +148,14 @@ const restart = async ($: EngineInterface, sessionId: string, since = Date.now()
 }
 
 const load = async ($: EngineInterface) => {
-  await log.load(portFor($), await $.session.id(), Date.now())
+  const loadAt = Date.now()
+  await log.load(portFor($), await $.session.id(), loadAt)
   if (log.facts.length === 0) log.append(portFor($), [{ kind: 'agent', agent: MAIN, agentKind: 'main' }])
   changed($)
-  // After a reload of an imported log, what happened while the module was
-  // down is past the cutoff and was not seen live: the message history fills
-  // those gaps, prompts aside.
-  if (log.imported) await fill($, false)
+  // History stays in memory only, so a load of an imported log reads it
+  // again, up to now: that also covers what happened while the module was
+  // down. Events meanwhile wait on the ingest queue and are dated after it.
+  if (log.imported) await importHistory($, loadAt)
 }
 
 /** Starts the log over when the session id moved on (a /clear or resume seen first through an event). */
@@ -299,10 +308,15 @@ export const register: Register = on => {
   // apply in order, and the answer is the props they lead to.
   on('ui.message', { requestId: PANE }, async ($, e) => {
     const agents = new Set(derive(timeline.model()).map(a => a.id))
-    const intents = parseIntents(e.data, agents)
+    const renumbered = log.renumbered
+    const intents = parseIntents(e.data, agents, renumbered)
     if (intents.length === 0) return {}
     const before = await read($, uiAtom)
-    const { ui, close } = applyIntents(intents, timeline, before)
+    const applied = applyIntents(intents, timeline, before)
+    const close = applied.close
+    // An import that renumbered the log meanwhile cleared the window; keep it cleared.
+    const { track: _, ...rest } = applied.ui
+    const ui = log.renumbered === renumbered ? applied.ui : rest
     if (ui !== before) await update($, uiAtom, () => ui)
     syncReplay($)
     if (close) await $.ui.close({ id: PANE })

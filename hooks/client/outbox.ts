@@ -1,6 +1,6 @@
-// Queues intents and sends them as one batch per frame. A later seek replaces
-// an earlier one in the same frame, so dragging along the track sends only
-// where it ended.
+// Queues intents and sends them as one batch per frame. A later seek or track
+// window replaces an earlier one in the same frame, so dragging along the
+// track or its overview sends only where it ended.
 
 import type { Intent, IntentBatch } from '../../types'
 
@@ -9,7 +9,7 @@ export class Outbox {
 
   push(...intents: Intent[]): void {
     for (const it of intents) {
-      if (it.type === 'seek') this.queue = this.queue.filter(q => q.type !== 'seek')
+      if (it.type === 'seek' || it.type === 'track') this.queue = this.queue.filter(q => q.type !== it.type)
       this.queue.push(it)
     }
   }

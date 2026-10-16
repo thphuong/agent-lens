@@ -49,10 +49,12 @@ export type Fact = FactHead & FactBody
 export type NewFact = Omit<FactHead, 'seq'> & FactBody
 
 /**
- * Which session the persisted log belongs to, how many chunks it spans, its
- * last seq, when it began recording live (epoch ms), and whether the
- * session's history was imported into it. Logs kept before the last two
- * fields existed lack them.
+ * Which session the persisted log belongs to, how many chunks of live facts
+ * it spans, its last seq, where history ends and live facts begin (epoch
+ * ms, moved to the load time on each load of an imported log), and whether
+ * the pane asked for the session's history, so every load reads it again.
+ * History itself is never persisted. Logs kept before the last two fields
+ * existed lack them.
  */
 export type LogMeta = { sessionId: string; chunks: number; seq: number; liveSince?: number; imported?: boolean }
 
@@ -77,7 +79,16 @@ export type UiState = {
   /** World positions of cards the person dragged. */
   pinned: Record<string, Point>
   wheel?: Wheel
+  /**
+   * The part of the timeline its track shows, as indices into replay order
+   * (`from` inclusive, `to` exclusive); absent for the whole timeline. Cleared
+   * whenever the log is renumbered, since it indexes facts.
+   */
+  track?: TrackWindow
 }
+
+/** A span of the timeline, as indices into replay order: `from` inclusive, `to` exclusive. */
+export type TrackWindow = { from: number; to: number }
 
 export type DisplayStatus = 'running' | 'idle' | 'done' | 'failed' | 'stopped'
 export type RunState = 'run' | 'ok' | 'err' | 'unknown'
@@ -126,8 +137,17 @@ export type ViewTimeline = {
   transport: Transport
   speed: number
   compress: boolean
-  /** Tool-call activity in equal buckets across the whole timeline. */
+  /**
+   * The span the track shows: the stored window clamped to the timeline and
+   * shifted to hold the playhead, or the whole timeline when not zoomed.
+   */
+  from: number
+  to: number
+  /** Tool-call activity in equal buckets across the track's span. */
   spark: number[]
+  /** Tool-call activity across the whole timeline, coarser; only while zoomed, and shed first. */
+  overview?: number[]
+  /** Marker positions within the track's span, as indices into replay order, at most one per spark bucket. */
   spawns: number[]
   fails: number[]
   gaps: number[]
@@ -202,6 +222,10 @@ export type Props = {
 export type Intent =
   | { type: 'seek'; to: number }
   | { type: 'seekPrompt'; dir: 1 | -1 }
+  /** One narrated fact back or forward. */
+  | { type: 'step'; dir: 1 | -1 }
+  /** To the previous or next spawn or failure. */
+  | { type: 'seekMarker'; dir: 1 | -1 }
   | { type: 'live' }
   | { type: 'play' }
   | { type: 'compress' }
@@ -211,11 +235,18 @@ export type Intent =
   | { type: 'detailFollow'; on: boolean }
   | { type: 'camera'; mode: CameraMode }
   | { type: 'pin'; id: string; x: number; y: number }
+  /** Shows a window of the timeline on its track; `from: null` shows all of it. */
+  | { type: 'track'; from: number; to: number }
+  | { type: 'track'; from: null }
   | { type: 'relayout' }
   | { type: 'close' }
 
-/** What the Client posts: its intents for one frame, in order. */
-export type IntentBatch = { intents: Intent[] }
+/**
+ * What the Client posts: its intents for one frame, in order, and the
+ * renumber count of the props it built them from, so a track window that
+ * indexes facts numbered since is dropped.
+ */
+export type IntentBatch = { intents: Intent[]; renumbered?: number }
 
 declare module 'claude-code' {
   interface PluginState {

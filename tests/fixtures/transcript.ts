@@ -21,6 +21,8 @@ export type TranscriptFiles = {
 /** Builds transcript files record by record on a fake clock, one second per record. */
 export class TranscriptBuilder {
   files: TranscriptFiles = { main: [], agents: [], journals: [] }
+  /** Tokens of every request written so far, summed per agent: input, output, cache reads and writes. */
+  tokens = new Map<string, number>()
   t = T0
   private n = 0
 
@@ -60,8 +62,12 @@ export class TranscriptBuilder {
     this.record('main', { type: 'user', origin, message: { role: 'user', content: text } })
   }
 
-  /** One model request, written as two records as the transcript does: an answer, then the tool calls. */
-  request(agent: string, calls: { id: string; tool: string; input?: Record<string, unknown> }[], usage: Usage = {}) {
+  /**
+   * One model request, written as two records as the transcript does: an
+   * answer, then the tool calls. The last record says why the model stopped,
+   * unless `streaming`: then the request is still being written.
+   */
+  request(agent: string, calls: { id: string; tool: string; input?: Record<string, unknown> }[], usage: Usage = {}, model = 'model-a', streaming = false) {
     const requestId = this.next('req-')
     const u = {
       input_tokens: usage.input ?? 100,
@@ -70,10 +76,17 @@ export class TranscriptBuilder {
       cache_creation_input_tokens: usage.write ?? 0,
       service_tier: 'standard',
     }
-    const message = (content: unknown[]) => ({ type: 'assistant', requestId, message: { id: `msg-${requestId}`, model: 'model-a', role: 'assistant', content, usage: u } })
-    this.record(agent, message([{ type: 'text', text: 'SECRET-ANSWER' }]))
+    const sum = u.input_tokens + u.output_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
+    this.tokens.set(agent, (this.tokens.get(agent) ?? 0) + sum)
+    const stop = streaming ? null : calls.length > 0 ? 'tool_use' : 'end_turn'
+    const message = (content: unknown[], last: boolean) => ({
+      type: 'assistant',
+      requestId,
+      message: { id: `msg-${requestId}`, model, role: 'assistant', content, usage: u, stop_reason: last ? stop : null },
+    })
+    this.record(agent, message([{ type: 'text', text: 'SECRET-ANSWER' }], calls.length === 0))
     if (calls.length > 0)
-      this.record(agent, message(calls.map(c => ({ type: 'tool_use', id: c.id, name: c.tool, input: c.input ?? { arg: 'SECRET-INPUT' } }))))
+      this.record(agent, message(calls.map(c => ({ type: 'tool_use', id: c.id, name: c.tool, input: c.input ?? { arg: 'SECRET-INPUT' } })), true))
     return requestId
   }
 

@@ -7,12 +7,13 @@ import type { DetailCall, Details, Info, Props, UiState, ViewAgent, ViewModel, V
 import { MAIN, type Fact } from './model/facts'
 import { callOutcome, derive, type DerivedAgent, type SessionModel } from './model/fold'
 import { runsOf } from './model/runs'
-import type { Timeline } from './model/timeline'
+import { narrates, trackWindow, type Timeline } from './model/timeline'
 import { cellText } from './text'
 
 /** Shedding starts above this many serialized characters; the hard cap is 100,000. */
 export const BUDGET = 85_000
 export const SPARK_BUCKETS = 160
+export const OVERVIEW_BUCKETS = 80
 export const RUNS_PER_AGENT = 3
 export const DETAIL_CALLS = 50
 const EDIT_TOOLS = new Set(['Write', 'Edit', 'NotebookEdit'])
@@ -37,7 +38,7 @@ export const detailAgent = (ui: UiState, agents: readonly DerivedAgent[]): strin
 }
 
 const narrate = (f: Fact | undefined, names: ReadonlyMap<string, string>): string | undefined => {
-  if (!f) return undefined
+  if (!f || !narrates(f)) return undefined
   const who = names.get(f.agent) ?? f.agent
   switch (f.kind) {
     case 'prompt':
@@ -57,12 +58,31 @@ const narrate = (f: Fact | undefined, names: ReadonlyMap<string, string>): strin
   }
 }
 
-const spark = (order: readonly Fact[], buckets: number): number[] => {
+/**
+ * The first of `marks` (sorted) in each of `buckets` equal buckets of
+ * `[from, to)`. The track has fewer columns than buckets, so this keeps the
+ * markers bounded however long the session, and exact once the span is no
+ * longer than the buckets.
+ */
+const quantise = (marks: readonly number[], from: number, to: number, buckets: number): number[] => {
+  const out: number[] = []
+  let last = -1
+  for (const i of marks) {
+    if (i < from || i >= to) continue
+    const b = Math.floor(((i - from) * buckets) / (to - from))
+    if (b === last) continue
+    last = b
+    out.push(i)
+  }
+  return out
+}
+
+/** Tool calls started in `order[from, to)`, counted in equal buckets. */
+const spark = (order: readonly Fact[], from: number, to: number, buckets: number): number[] => {
   const out = new Array<number>(buckets).fill(0)
-  if (order.length === 0) return out
-  order.forEach((f, i) => {
-    if (f.kind === 'toolStart') out[Math.min(buckets - 1, Math.floor((i * buckets) / order.length))]! += 1
-  })
+  for (let i = from; i < to; i++) {
+    if (order[i]!.kind === 'toolStart') out[Math.min(buckets - 1, Math.floor(((i - from) * buckets) / (to - from)))]! += 1
+  }
   return out
 }
 
@@ -121,14 +141,15 @@ const info = (m: SessionModel, agents: readonly DerivedAgent[], compress: boolea
   }
 }
 
-type Shed = { runsPerAgent: number; openRunsOnly: boolean; spark: number; detailCalls: number; labelCells: number }
+type Shed = { runsPerAgent: number; openRunsOnly: boolean; overview: number; spark: number; detailCalls: number; labelCells: number }
 
 const LEVELS: Shed[] = [
-  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: false, spark: SPARK_BUCKETS, detailCalls: DETAIL_CALLS, labelCells: 40 },
-  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: true, spark: SPARK_BUCKETS, detailCalls: DETAIL_CALLS, labelCells: 40 },
-  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: true, spark: 80, detailCalls: DETAIL_CALLS, labelCells: 40 },
-  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: true, spark: 80, detailCalls: 20, labelCells: 40 },
-  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: true, spark: 80, detailCalls: 20, labelCells: 24 },
+  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: false, overview: OVERVIEW_BUCKETS, spark: SPARK_BUCKETS, detailCalls: DETAIL_CALLS, labelCells: 40 },
+  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: true, overview: OVERVIEW_BUCKETS, spark: SPARK_BUCKETS, detailCalls: DETAIL_CALLS, labelCells: 40 },
+  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: true, overview: 0, spark: SPARK_BUCKETS, detailCalls: DETAIL_CALLS, labelCells: 40 },
+  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: true, overview: 0, spark: 80, detailCalls: DETAIL_CALLS, labelCells: 40 },
+  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: true, overview: 0, spark: 80, detailCalls: 20, labelCells: 40 },
+  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: true, overview: 0, spark: 80, detailCalls: 20, labelCells: 24 },
 ]
 
 /** Runs settled long enough ago that their chips have faded need not travel. */
@@ -141,7 +162,11 @@ export const buildProps = (input: PropsInput): Props => {
   const derived = derive(m)
   const visible = new Set(derived.map(d => d.id))
   const allRuns = runsOf(m).filter(r => visible.has(r.agent))
-  const markers = timeline.markers()
+  const { from, to } = trackWindow(ui.track, timeline.length, timeline.playhead)
+  const zoomed = to - from < timeline.length
+  const all = timeline.markers()
+  const q = (marks: readonly number[]) => quantise(marks, from, to, SPARK_BUCKETS)
+  const markers = { spawns: q(all.spawns), fails: q(all.fails), gaps: q(all.gaps), prompts: q(all.prompts) }
   const names = new Map(derived.map(d => [d.id, d.label]))
   const atHead = timeline.order[timeline.playhead - 1]
   const focus = detailAgent(ui, derived)
@@ -193,7 +218,10 @@ export const buildProps = (input: PropsInput): Props => {
         transport: timeline.transport(now),
         speed: timeline.speed,
         compress: timeline.compress,
-        spark: spark(timeline.order, shed.spark),
+        from,
+        to,
+        spark: spark(timeline.order, from, to, shed.spark),
+        overview: zoomed && shed.overview > 0 ? spark(timeline.order, 0, timeline.length, shed.overview) : undefined,
         ...markers,
         lastEvent: narrate(atHead, names),
         playheadAt: atHead?.at,

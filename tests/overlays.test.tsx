@@ -30,10 +30,10 @@ const referenceProps = (ui = EMPTY_UI) => {
 describe('timeline panel', () => {
   test('the track ends map to the first and last fact', () => {
     const track = trackOf({ x: 0, y: 0, w: 60, h: 6 }, false)
-    expect(trackIndexAt(track.x, track, 100)).toBe(0)
-    expect(trackIndexAt(track.x + track.w - 1, track, 100)).toBe(99)
-    expect(trackIndexAt(-5, track, 100)).toBe(0)
-    expect(trackIndexAt(500, track, 100)).toBe(99)
+    expect(trackIndexAt(track.x, track, { from: 0, to: 100 })).toBe(0)
+    expect(trackIndexAt(track.x + track.w - 1, track, { from: 0, to: 100 })).toBe(99)
+    expect(trackIndexAt(-5, track, { from: 0, to: 100 })).toBe(0)
+    expect(trackIndexAt(500, track, { from: 0, to: 100 })).toBe(99)
   })
 
   test('the compact form is chosen below 30 rows', () => {

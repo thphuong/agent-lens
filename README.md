@@ -71,6 +71,8 @@ The first `/viz` in a session reads the session's transcript files, so the
 graph shows everything from before as well: a resumed session, one
 restarted or compacted, or one recorded before the mod was installed. To
 see an old session, resume it with `claude --resume <id>` and run `/viz`.
+The whole history is read, however long the session, and read again each
+time the mod reloads.
 
 Each card counts tokens three ways, and the status bar does the same for
 the whole session:
@@ -93,6 +95,8 @@ back to the prompt, so the graph uses `x` where you might expect Escape.
 | --- | --- |
 | `space` | play / pause replay |
 | `[` `]` | previous / next prompt |
+| `,` `.` | step one event back / forward |
+| `<` `>` | previous / next spawn or failure |
 | `g` `End` | go live |
 | `s` | toggle gap compression |
 | `o` | overview: fit the whole graph |
@@ -113,6 +117,10 @@ With the mouse:
 - Scroll the wheel over the graph to zoom about the pointer, or over the
   details to scroll them.
 - Click or drag along the timeline to seek.
+- Scroll the wheel over the timeline to zoom it about the pointer, down to
+  one event per column. While zoomed, the timeline's top border shows
+  where the zoomed part sits in the whole session; drag along it to move
+  that part.
 - Click `⌖ follow` / `⌖ manual` on the status bar to toggle follow, and
   `↺ layout` to put dragged cards back into the layout.
 
@@ -133,13 +141,10 @@ status-bar badge returns it to following the latest activity.
   message list instead: the newest 4096 messages per agent, marked
   `truncated` when cut, with no times or token counts and no workflow
   agents. The debug log says why.
-- Events that fire while the mod hot-reloads are not seen live, and the
-  import reads only what came before the log began. The message history
-  fills in the agents and tool calls of that moment, but a prompt or a
-  model call's tokens in it can be missing.
-- A very long session imports at most 15,000 facts: the oldest tool calls,
-  prompts and token counts beyond that are left out and the status bar
-  says `truncated`. Every agent is still drawn.
+- Events that fire while the mod hot-reloads are not seen live. The
+  transcript, read again on the reload, fills them in with their times
+  and tokens. Only when it cannot be read does the message history fill
+  them in, and then a prompt or a model call's tokens can be missing.
 
 ## License
 

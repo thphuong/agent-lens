@@ -13,6 +13,8 @@ export type Drag =
   | { kind: 'node'; id: string; sx: number; sy: number; ox: number; oy: number; isMoved: boolean }
   | { kind: 'pan'; sx: number; sy: number; ox: number; oy: number; isMoved: boolean }
   | { kind: 'track' }
+  /** The window of a zoomed track, moved along the overview in the panel's top border. */
+  | { kind: 'window' }
 
 export type Live = {
   props: Props

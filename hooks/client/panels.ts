@@ -12,6 +12,8 @@ export const DETAILS_RIGHT_MIN = 70
 export const KEYMAP: [string, string][] = [
   ['space', 'play / pause'],
   ['[  ]', 'previous / next prompt'],
+  [',  .', 'step back / forward'],
+  ['<  >', 'previous / next spawn or failure'],
   ['g  End', 'go live'],
   ['s', 'gap compression'],
   ['o', 'overview'],

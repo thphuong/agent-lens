@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { derive, foldAll } from '../hooks/model/fold'
-import { compressGap, SPEED, Timeline, UNDATED_STEP_MS } from '../hooks/model/timeline'
+import { compressGap, narrates, SPEED, Timeline, trackWindow, UNDATED_STEP_MS } from '../hooks/model/timeline'
 import type { Fact } from '../hooks/model/facts'
 import { large, reference, rng, Session } from './fixtures/generate'
 
@@ -101,6 +101,59 @@ describe('navigation and markers', () => {
     expect(t.playhead).toBe(p2! + 1)
   })
 
+  test('stepping visits each narrated fact once, either way, and stays in range', () => {
+    const t = timelineOf(reference().numbered())
+    const narrated = t.order.flatMap((f, i) => (narrates(f) ? [i + 1] : []))
+    expect(narrated.length).toBeLessThan(t.length)
+    t.seek(0)
+    const forward: number[] = []
+    for (let k = 0; k < narrated.length; k++) {
+      t.step(1)
+      forward.push(t.playhead)
+    }
+    expect(forward).toEqual(narrated)
+    t.step(1)
+    expect(t.playhead).toBe(t.length)
+    t.seek(t.length)
+    const back: number[] = []
+    while (t.playhead > 0) {
+      t.step(-1)
+      back.push(t.playhead)
+    }
+    // The fact at the end is shown already, so stepping back starts at the narrated fact before it.
+    expect(back).toEqual([...narrated.filter(p => p < t.length).reverse(), 0])
+    t.step(-1)
+    expect(t.playhead).toBe(0)
+  })
+
+  test('a step pauses replay', () => {
+    const t = timelineOf(reference().numbered())
+    t.seek(3)
+    t.togglePlay()
+    t.step(1)
+    expect(t.mode).toBe('paused')
+  })
+
+  test('marker seek visits spawns and failures in order, then goes live', () => {
+    const t = timelineOf(reference().numbered())
+    const { spawns, fails } = t.markers()
+    const marks = [...spawns, ...fails].sort((a, b) => a - b).map(i => i + 1)
+    t.seek(0)
+    const seen: number[] = []
+    for (let k = 0; k < marks.length; k++) {
+      t.seekMarker(1)
+      seen.push(t.playhead)
+    }
+    expect(seen).toEqual(marks)
+    t.seekMarker(1)
+    expect(t.mode).toBe('live')
+    t.seekMarker(-1)
+    expect(t.playhead).toBe(marks.at(-1)! === t.length ? marks.at(-2) : marks.at(-1))
+    t.seek(marks[0]!)
+    t.seekMarker(-1)
+    expect(t.playhead).toBe(0)
+  })
+
   test('markers find spawns, failures, long gaps and prompts', () => {
     const s = reference()
     s.tick(90_000)
@@ -141,5 +194,32 @@ describe('benchmark', () => {
     }
     const avg = (performance.now() - t0) / 100
     expect(avg).toBeLessThan(8)
+  })
+})
+
+describe('track window', () => {
+  test('no window, or one as long as the timeline, shows all of it', () => {
+    expect(trackWindow(undefined, 500, 10)).toEqual({ from: 0, to: 500 })
+    expect(trackWindow({ from: 3, to: 900 }, 500, 10)).toEqual({ from: 0, to: 500 })
+    expect(trackWindow({ from: 0, to: 40 }, 0, 0)).toEqual({ from: 0, to: 0 })
+  })
+
+  test('a window past a shrunken timeline is clamped into it, keeping its span', () => {
+    expect(trackWindow({ from: 400, to: 440 }, 100, 80)).toEqual({ from: 60, to: 100 })
+    expect(trackWindow({ from: -20, to: 20 }, 100, 1)).toEqual({ from: 0, to: 40 })
+  })
+
+  test('the window shifts to hold the playhead at either edge', () => {
+    // The playhead counts facts shown, so the fact at it is index playhead - 1.
+    expect(trackWindow({ from: 100, to: 140 }, 500, 120)).toEqual({ from: 100, to: 140 })
+    expect(trackWindow({ from: 100, to: 140 }, 500, 141)).toEqual({ from: 101, to: 141 })
+    expect(trackWindow({ from: 100, to: 140 }, 500, 100)).toEqual({ from: 99, to: 139 })
+    expect(trackWindow({ from: 100, to: 140 }, 500, 0)).toEqual({ from: 0, to: 40 })
+  })
+
+  test('while live the window follows the end', () => {
+    const t = timelineOf(large(5, 300).numbered())
+    const stored = { from: 10, to: 60 }
+    expect(trackWindow(stored, t.length, t.playhead)).toEqual({ from: t.length - 50, to: t.length })
   })
 })

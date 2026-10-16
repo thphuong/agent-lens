@@ -2,16 +2,16 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import type { Fact, NewFact } from '../hooks/model/facts'
 import { derive, foldAll } from '../hooks/model/fold'
+import { ordered } from '../hooks/model/timeline'
 import { FactLog, type LogPort } from '../hooks/persist'
 import { fileLines, READ_LIMIT, type FilePort } from '../hooks/transcript-io'
-import { IMPORT_FACTS } from '../hooks/transcript'
 import { readTranscript, referenceTranscript, SECRETS, T0, TranscriptBuilder } from './fixtures/transcript'
 
 const port: LogPort = { readMeta: async () => undefined, writeMeta: async () => {}, readChunk: async () => undefined, writeChunk: async () => {}, after: () => {} }
 
 const logOf = (facts: readonly NewFact[]) => {
   const log = new FactLog()
-  log.merge(port, facts)
+  log.adopt(port, facts, Number.POSITIVE_INFINITY)
   return log
 }
 
@@ -95,6 +95,22 @@ describe('transcript', () => {
     expect(usage).toEqual([])
   })
 
+  test('a request with no record saying it stopped is left to the live hooks', () => {
+    const b = new TranscriptBuilder()
+    b.request('main', [{ id: 'c', tool: 'Read' }], { input: 7 })
+    b.request('main', [], { input: 300 }, 'model-a', true)
+    const usage = readTranscript(b.files).facts.filter(f => f.kind === 'usage')
+    expect(usage).toEqual([expect.objectContaining({ key: 'req:req-1', input: 7 })])
+  })
+
+  test('a transcript that never says why the model stopped counts every request', () => {
+    const b = new TranscriptBuilder()
+    b.request('main', [{ id: 'c', tool: 'Read' }])
+    b.request('main', [])
+    for (const lines of [b.files.main]) lines.forEach((l, i) => (lines[i] = l.replace(/,"stop_reason":(null|"[a-z_]+")/, '')))
+    expect(readTranscript(b.files).facts.filter(f => f.kind === 'usage')).toHaveLength(2)
+  })
+
   test('an interruption is not a prompt', () => {
     const b = new TranscriptBuilder()
     b.prompt('[Request interrupted by user]', undefined)
@@ -103,19 +119,36 @@ describe('transcript', () => {
     expect(prompts).toEqual([expect.objectContaining({ line: 'an older fake prompt' })])
   })
 
-  test('a huge transcript is capped, keeping its agents and newest facts, and marked truncated', () => {
+  test('a session many times past the old 15,000-fact cap imports in full', () => {
     const b = referenceTranscript()
-    for (let i = 0; i < 4000; i++) {
-      b.request('main', [{ id: `bulk${i}`, tool: 'Read' }])
-      b.result('main', `bulk${i}`)
+    for (let i = 0; i < 12_000; i++) {
+      const agent = i % 3 === 0 ? 'a1' : 'main'
+      b.request(agent, [{ id: `bulk${i}`, tool: 'Read' }], { input: 1 + (i % 7), output: i % 5, read: i % 11, write: i % 2 })
+      b.result(agent, `bulk${i}`)
     }
     const { facts } = readTranscript(b.files)
-    expect(facts.length).toBe(IMPORT_FACTS)
-    expect(facts).toContainEqual({ kind: 'truncated', agent: 'main' })
+    expect(facts.length).toBeGreaterThan(2 * 15_000)
+    expect(facts.some(f => f.kind === 'truncated')).toBe(false)
     const d = derived(facts)
+    for (const agent of ['main', 'a1', 'a2', 'w1', 'w2']) expect(d.get(agent)?.tok).toBe(b.tokens.get(agent))
+    expect(d.get('main')?.tools).toBe(3 + 8000)
     expect(d.get('a2')).toMatchObject({ parent: 'a1', status: 'failed' })
-    expect(facts.some(f => f.kind === 'toolStart' && f.call === 'bulk3999')).toBe(true)
-    expect(facts.some(f => f.kind === 'toolStart' && f.call === 'c1')).toBe(false)
+    // The first prompt replays first of everything dated.
+    const log = logOf(facts)
+    expect(ordered(log.facts).find(f => f.at !== undefined)).toMatchObject({ kind: 'prompt', line: 'map the fake repo' })
+  })
+
+  test('each agent reports each of its models once', () => {
+    const b = new TranscriptBuilder()
+    for (let i = 0; i < 5; i++) b.request('main', [])
+    for (let i = 0; i < 3; i++) b.request('main', [], {}, 'model-b')
+    b.request('main', [])
+    const models = readTranscript(b.files).facts.filter(f => f.kind === 'model')
+    expect(models).toEqual([
+      expect.objectContaining({ agent: 'main', model: 'model-a', at: T0 + 1000 }),
+      expect.objectContaining({ agent: 'main', model: 'model-b' }),
+    ])
+    expect(derived(readTranscript(b.files).facts).get('main')?.model).toBe('model-b')
   })
 
   test('malformed lines are skipped and counted, other record types passed over, never thrown', () => {
@@ -139,18 +172,18 @@ describe('transcript', () => {
     const { facts } = readTranscript(referenceTranscript().files)
     const once = logOf(facts)
     const twice = logOf(facts)
-    expect(twice.merge(port, readTranscript(referenceTranscript().files).facts)).toEqual([])
+    twice.adopt(port, readTranscript(referenceTranscript().files).facts, Number.POSITIVE_INFINITY)
     expect(twice.facts).toEqual(once.facts)
   })
 
-  test('merged history is numbered before the facts seen live', () => {
+  test('adopted history is numbered before the facts seen live', () => {
     const log = new FactLog()
     const live: NewFact[] = [
       { kind: 'agent', agent: 'main', agentKind: 'main' },
       { kind: 'ended', at: T0 + 500_000, agent: 'a1', status: 'done', turn: 't9' },
     ]
     log.append(port, live)
-    log.merge(port, readTranscript(referenceTranscript().files, T0 + 9_000).facts)
+    log.adopt(port, readTranscript(referenceTranscript().files, T0 + 9_000).facts, T0 + 9_000)
     const seqs = log.facts.map((f: Fact) => f.seq)
     expect(seqs).toEqual(seqs.map((_, i) => i + 1))
     const end = log.facts.find(f => f.kind === 'ended' && f.turn === 't9')!

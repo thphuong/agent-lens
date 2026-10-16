@@ -104,6 +104,14 @@ export const onKey = (live: Live, e: ClientKeyEvent): void => {
       return out.push({ type: 'seekPrompt', dir: -1 })
     case ']':
       return out.push({ type: 'seekPrompt', dir: 1 })
+    case ',':
+      return out.push({ type: 'step', dir: -1 })
+    case '.':
+      return out.push({ type: 'step', dir: 1 })
+    case '<':
+      return out.push({ type: 'seekMarker', dir: -1 })
+    case '>':
+      return out.push({ type: 'seekMarker', dir: 1 })
     case 'g':
     case 'end':
       return out.push({ type: 'live' })

@@ -2,6 +2,7 @@
 // facts are shown, replayed with gaps compressed so quiet stretches pass
 // quickly and bursts stay legible.
 
+import type { TrackWindow } from '../../types'
 import type { Fact } from './facts'
 import { foldAll, type SessionModel } from './fold'
 
@@ -25,12 +26,34 @@ export type Transport = 'live' | 'playing' | 'paused' | 'history' | 'idle'
 
 export type Markers = { spawns: number[]; fails: number[]; gaps: number[]; prompts: number[] }
 
+/**
+ * Whether the timeline narrates a fact at the playhead. Usage, model, label
+ * and status facts change nothing the narration shows, so stepping skips them.
+ */
+export const narrates = (f: Fact): boolean =>
+  f.kind === 'prompt' || f.kind === 'spawn' || f.kind === 'toolStart' || f.kind === 'toolEnd' || f.kind === 'ended' || f.kind === 'reopened'
+
 /** Replay order: undated facts first in seq order, then dated ones by time. */
 export const ordered = (facts: readonly Fact[]): Fact[] =>
   [...facts].sort((a, b) => {
     if (a.at === undefined || b.at === undefined) return a.at === undefined ? (b.at === undefined ? a.seq - b.seq : -1) : 1
     return a.at - b.at || a.seq - b.seq
   })
+
+/**
+ * The span the track shows: the stored window clamped to `[0, length]` and
+ * shifted, keeping its span, so that it holds the fact at the playhead. So
+ * replay, seeks and going live pan the window without writing it.
+ */
+export const trackWindow = (stored: TrackWindow | undefined, length: number, playhead: number): TrackWindow => {
+  const span = stored === undefined ? length : Math.min(length, stored.to - stored.from)
+  if (span <= 0 || span >= length) return { from: 0, to: length }
+  const head = Math.max(0, playhead - 1)
+  let from = Math.max(0, Math.min(length - span, stored!.from))
+  if (head < from) from = head
+  else if (head >= from + span) from = head - span + 1
+  return { from, to: from + span }
+}
 
 export class Timeline {
   /** The log's facts in replay order. */
@@ -65,6 +88,25 @@ export class Timeline {
   /** Moves to just after the previous (-1) or next (+1) prompt. */
   seekPrompt(dir: 1 | -1): void {
     const ends = this.markers().prompts.map(i => i + 1)
+    const target = dir > 0 ? ends.find(p => p > this.playhead) : ends.filter(p => p < this.playhead).at(-1)
+    if (target !== undefined) this.seek(target)
+    else if (dir > 0) this.goLive()
+    else this.seek(0)
+  }
+
+  /** Moves to just after the previous (-1) or next (+1) narrated fact, pausing replay. */
+  step(dir: 1 | -1): void {
+    if (this.mode === 'playing') this.mode = 'paused'
+    let i = dir > 0 ? this.playhead : this.playhead - 2
+    while (i >= 0 && i < this.order.length && !narrates(this.order[i]!)) i += dir
+    this.seek(i < 0 ? 0 : i + 1)
+  }
+
+  /** Moves to just after the previous (-1) or next (+1) spawn or failure, pausing replay. */
+  seekMarker(dir: 1 | -1): void {
+    if (this.mode === 'playing') this.mode = 'paused'
+    const { spawns, fails } = this.markers()
+    const ends = [...spawns, ...fails].sort((a, b) => a - b).map(i => i + 1)
     const target = dir > 0 ? ends.find(p => p > this.playhead) : ends.filter(p => p < this.playhead).at(-1)
     if (target !== undefined) this.seek(target)
     else if (dir > 0) this.goLive()

@@ -2,6 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import { CHIP_TTL_MS } from '../hooks/client/anim'
 import { FRAME_MS } from '../hooks/frame'
+import type { Props } from '../types'
 
 const PANE = {
   plugin: 'session-viz',
@@ -32,6 +33,32 @@ test('a remount neither flashes settled chips nor loses the camera mode', async 
   expect(await again.find({ type: 'Text', text: /⌖ overview/, in: 'graph' })).toBeDefined()
   // Settled runs from before the mount are history: no chip glyph shows on a card.
   expect(await again.find({ type: 'Text', text: /✓ (Read|Grep)/, in: 'graph' })).toBeUndefined()
+  await again.unmount()
+})
+
+test('a zoomed track keeps its window across a remount', async ($, on) => {
+  on('session.id', () => ({ value: 's1' }))
+  on('session.messages', () => ({ value: [] }))
+  on('agent.list', () => ({ value: [] }))
+  on('command.register', () => ({ value: { command: 'viz' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('tool.call', () => ({ result: {} }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  for (let i = 0; i < 60; i++) await $.tool.call({ tool: 'Read', command: 'x' } as never)
+  const timelineOf = async (ui: { find: (q: { type: string }) => Promise<{ props: Record<string, unknown> } | undefined> }) =>
+    ((await ui.find({ type: 'Client' }))!.props.props as Props).view.timeline
+
+  const first = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await first.resize({ columns: 120, rows: 40 })
+  await first.post({ intents: [{ type: 'seek', to: 30 }, { type: 'track', from: 10, to: 40 }] })
+  await first.redraw()
+  expect(await timelineOf(first)).toMatchObject({ from: 10, to: 40, playhead: 30 })
+  await first.unmount()
+
+  const again = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await again.resize({ columns: 120, rows: 40 })
+  expect(await timelineOf(again)).toMatchObject({ from: 10, to: 40 })
+  expect(await again.find({ type: 'Text', text: /━/, in: 'graph' })).toBeDefined()
   await again.unmount()
 })
 

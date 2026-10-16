@@ -1,6 +1,6 @@
 import { describe, expect, test, type TestBody } from 'claude-code/testing'
 
-import { applyWheel, onPointer, WHEEL_ZOOM } from '../hooks/client/input'
+import { applyWheel, onPointer, TRACK_ZOOM, WHEEL_ZOOM } from '../hooks/client/input'
 import { onKey } from '../hooks/client/keymap'
 import { GLIDE_SECS } from '../hooks/client/camera'
 import { layout } from '../hooks/client/layout'
@@ -8,14 +8,14 @@ import { Grid } from '../hooks/client/grid'
 import { cardAt, createLive, stepPositions, syncLayout, type Live } from '../hooks/client/live'
 import { drawScene } from '../hooks/client/scene'
 import { regions } from '../hooks/client/regions'
-import { trackOf } from '../hooks/client/timeline-panel'
-import { wheelTick, MAX_WHEEL } from '../hooks/intents'
+import { overviewOf, trackIndexAt, trackOf, windowOf } from '../hooks/client/timeline-panel'
+import { applyIntents, wheelTick, MAX_WHEEL } from '../hooks/intents'
 import { Timeline } from '../hooks/model/timeline'
 import { buildProps } from '../hooks/props'
 import { EMPTY_UI } from '../hooks/uistate'
 import type { Fact } from '../hooks/model/facts'
 import type { Intent, Props, UiState } from '../types'
-import { reference, waterfall, wrapped } from './fixtures/generate'
+import { large, reference, waterfall, wrapped } from './fixtures/generate'
 
 const PANE = {
   plugin: 'session-viz',
@@ -141,6 +141,17 @@ describe('keys', () => {
     expect(live.hasKeys).toBe(true)
   })
 
+  test('the step and marker keys post their intents', () => {
+    const live = liveFor()
+    for (const key of [',', '.', '<', '>']) onKey(live, { key })
+    expect(sent(live)).toEqual([
+      { type: 'step', dir: -1 },
+      { type: 'step', dir: 1 },
+      { type: 'seekMarker', dir: -1 },
+      { type: 'seekMarker', dir: 1 },
+    ])
+  })
+
   test('f toggles follow and manual', () => {
     const live = liveFor()
     onKey(live, { key: 'f' })
@@ -218,6 +229,105 @@ describe('wheel', () => {
     applyWheel(open, { seq: 1, by: 3, column: d.x + 1, row: d.y + 1 })
     expect(open.detailScroll).toBe(3)
     expect(open.camera.z).toBe(1)
+  })
+})
+
+describe('timeline track zoom', () => {
+  /** An instance over a long session at 87×32, wired to the hooks module's intents as the pane is. */
+  const zoomable = () => {
+    const t = new Timeline()
+    t.setFacts(large(30, 3000).numbered())
+    let ui: UiState = EMPTY_UI
+    const props = () => buildProps({ timeline: t, ui, now: 0, prompts: new Map() })
+    const live = createLive(props(), regions(87, 32, props()), 0)
+    let seq = 0
+    /** Sends what the instance queued, as its frame does, and hands it the answer. */
+    const answer = () => {
+      ui = applyIntents(sent(live), t, ui).ui
+      live.props = props()
+    }
+    const wheel = (by: number, column: number) => {
+      const track = trackOf(live.regions.panel, live.regions.isCompact)
+      applyWheel(live, { seq: ++seq, by, column, row: track.y })
+      answer()
+    }
+    return { t, live, answer, wheel, track: trackOf(live.regions.panel, live.regions.isCompact), ui: () => ui }
+  }
+
+  test('zoomed fully in, one column is one fact, so neighbouring columns seek neighbouring facts', () => {
+    const { t, live, answer, wheel, track } = zoomable()
+    const mid = track.x + Math.floor(track.w / 2)
+    for (let i = 0; i < 40; i++) wheel(-1, mid)
+    const { from, to } = live.props.view.timeline
+    expect(to - from).toBe(track.w)
+    const seeks: number[] = []
+    for (const x of [mid, mid + 1, mid + 2]) {
+      onPointer(live, { type: 'down', x, y: track.y, button: 'left' })
+      onPointer(live, { type: 'up', x, y: track.y, button: 'left' })
+      answer()
+      seeks.push(t.playhead)
+    }
+    expect(seeks).toEqual([seeks[0], seeks[0]! + 1, seeks[0]! + 2])
+  })
+
+  test('the fact under the pointer stays under it while zooming, pulling the playhead into the window', () => {
+    const { t, live, wheel, track } = zoomable()
+    const x = track.x + 10
+    for (let i = 0; i < 6; i++) {
+      const under = trackIndexAt(x, track, windowOf(live.props.view.timeline))
+      wheel(-1, x)
+      const now = live.props.view.timeline
+      expect(Math.abs(trackIndexAt(x, track, windowOf(now)) - under)).toBeLessThanOrEqual(Math.ceil((now.to - now.from) / track.w))
+    }
+    const { from, to, length } = live.props.view.timeline
+    expect(to - from).toBe(Math.round(length / TRACK_ZOOM ** 6))
+    // Live at the end, the playhead was pulled to the window's right edge, so the window stays put.
+    expect(t.playhead).toBe(to)
+    expect(t.mode).toBe('paused')
+  })
+
+  test('after going live, a seek pans the window from where it was shown, not where it was stored', () => {
+    const { t, live, answer, wheel, track, ui } = zoomable()
+    for (let i = 0; i < 6; i++) wheel(-1, track.x + 10)
+    live.outbox.push({ type: 'live' })
+    answer()
+    const end = live.props.view.timeline
+    expect(end.to).toBe(t.length)
+    // One step back stays inside the end window, so the window must not move.
+    live.outbox.push({ type: 'step', dir: -1 })
+    answer()
+    expect(ui().track).toEqual({ from: end.from, to: end.to })
+    expect(windowOf(live.props.view.timeline)).toEqual({ from: end.from, to: end.to })
+  })
+
+  test('zooming fully out clears the window', () => {
+    const { live, wheel, track, ui } = zoomable()
+    for (let i = 0; i < 5; i++) wheel(-1, track.x + 5)
+    expect(ui().track).toBeDefined()
+    for (let i = 0; i < 10; i++) wheel(1, track.x + 5)
+    expect(ui().track).toBeUndefined()
+    expect(live.props.view.timeline).toMatchObject({ from: 0, to: live.props.view.timeline.length })
+  })
+
+  test('dragging the overview moves the window, pulling the playhead along when the window leaves it', () => {
+    const { t, live, answer, wheel, track, ui } = zoomable()
+    for (let i = 0; i < 4; i++) wheel(-1, track.x + 5)
+    const span = live.props.view.timeline.to - live.props.view.timeline.from
+    const o = overviewOf(live.regions.panel)
+    onPointer(live, { type: 'down', x: o.x, y: o.y, button: 'left' })
+    answer()
+    expect(live.props.view.timeline).toMatchObject({ from: 0, to: span })
+    expect(t.playhead).toBe(span)
+    // Many moves within one frame send one window and one seek.
+    for (let x = o.x; x <= o.x + Math.floor(o.w / 2); x++) onPointer(live, { type: 'move', x, y: o.y, button: 'left' })
+    onPointer(live, { type: 'up', x: o.x + Math.floor(o.w / 2), y: o.y, button: 'left' })
+    expect(live.outbox.size).toBeLessThanOrEqual(2)
+    answer()
+    const { from, to } = live.props.view.timeline
+    expect(to - from).toBe(span)
+    expect(ui().track).toEqual({ from, to })
+    expect(from).toBeGreaterThan(t.length / 2 - span)
+    expect(t.playhead - 1).toBe(from)
   })
 })
 

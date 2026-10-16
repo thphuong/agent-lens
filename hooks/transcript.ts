@@ -11,15 +11,6 @@ import { LABEL_CELLS, promptLine, workflowRun } from './ingest'
 import { groupId, MAIN, type EndStatus, type NewFact } from './model/facts'
 import { cellText } from './text'
 
-/**
- * At most this many facts are imported (about 2 MB of the 4 MiB `$.state`
- * holds for the whole mod). Past it the oldest calls, prompts and usage are
- * dropped and the log is marked truncated; agents and their ends are kept.
- */
-export const IMPORT_FACTS = 15_000
-
-const STRUCTURE = new Set<NewFact['kind']>(['agent', 'spawn', 'label', 'model', 'ended'])
-
 const INTERRUPTED = /^\[Request interrupted/
 
 /** A background task's completion notice: the agent it names and how it ended. Nothing else of it is read. */
@@ -39,7 +30,7 @@ const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v)
 const blocks = (v: unknown): Obj[] => (Array.isArray(v) ? v.map(obj).filter((b): b is Obj => b !== undefined) : [])
 
 /** What one transcript file says about its agent beyond the facts it produced. */
-type FileInfo = { first?: number; last?: number; model?: string }
+type FileInfo = { first?: number; last?: number }
 
 type AgentMeta = { label?: string; type?: string; toolUseId?: string; finished?: boolean }
 
@@ -68,6 +59,13 @@ export class TranscriptReader {
   private usage = new Map<string, NewFact>()
   /** Requests with a record at or after the cutoff: the live hooks count those. */
   private late = new Set<string>()
+  /**
+   * Requests with a record that says why the model stopped, written once it
+   * finished. One still streaming when the cutoff passed has none yet: the
+   * live hooks count it. Transcripts that never say are read as finished.
+   */
+  private stopped = new Set<string>()
+  private saysStops = false
   private files = new Map<string, FileInfo>()
   private metas = new Map<string, AgentMeta>()
   /** Workflow agents by id, with their run. */
@@ -80,6 +78,8 @@ export class TranscriptReader {
   /** Agents a journal reports as ended, and whether they failed; dated in `result`. */
   private journaled = new Map<string, boolean>()
   private launched = new Set<string>()
+  /** Models already reported per agent: a model fact is pushed only on an agent's first use of it. */
+  private models = new Set<string>()
 
   constructor(private readonly cutoff: number) {}
 
@@ -124,7 +124,7 @@ export class TranscriptReader {
 
   /** The facts, with subagents parented and dated, and how much was skipped. */
   result(): TranscriptResult {
-    const usage = [...this.usage].flatMap(([key, f]) => (this.late.has(key) ? [] : [f]))
+    const usage = [...this.usage].flatMap(([key, f]) => (this.late.has(key) || (this.saysStops && !this.stopped.has(key)) ? [] : [f]))
     const out: NewFact[] = [{ kind: 'agent', agent: MAIN, agentKind: 'main' }, ...this.facts, ...usage]
     // An agent named only by its launch still shows: its files may have been cleaned up.
     const ids = new Set([...this.files.keys(), ...this.metas.keys(), ...this.journaled.keys(), ...this.launches.keys()])
@@ -139,7 +139,7 @@ export class TranscriptReader {
       if (e.at >= this.cutoff || !shown.has(id)) continue
       out.push({ kind: 'ended', at: e.at, agent: id, status: e.status, turn: ENDED })
     }
-    return { facts: capped(out), skipped: this.skipped, records: this.records }
+    return { facts: out, skipped: this.skipped, records: this.records }
   }
 
   private spawned(id: string): NewFact[] {
@@ -158,7 +158,6 @@ export class TranscriptReader {
       { kind: 'spawn', at, agent: id, parent },
       { kind: 'label', at, agent: id, text: cellText(meta.label ?? call?.label ?? type, LABEL_CELLS), type },
     ]
-    if (file?.model !== undefined) facts.push({ kind: 'model', at, agent: id, model: file.model })
     if (run !== undefined && !this.launched.has(run)) {
       // The run's launch was not read: the group still shows, under main.
       facts.push({ kind: 'agent', at, agent: groupId(run), agentKind: 'group' }, { kind: 'spawn', at, agent: groupId(run), parent: MAIN })
@@ -237,15 +236,21 @@ export class TranscriptReader {
     const model = str(message.model)
     if (model !== undefined && !model.startsWith('<')) {
       const m = cellText(model, LABEL_CELLS)
-      this.facts.push({ kind: 'model', at, agent, model: m })
-      const file = this.files.get(agent)
-      if (file) file.model = m
+      const key = `${agent}\n${m}`
+      if (!this.models.has(key)) {
+        this.models.add(key)
+        this.facts.push({ kind: 'model', at, agent, model: m })
+      }
     }
     // One request is written as several records; the last one's usage stands.
     const u = obj(message.usage)
     const request = str(r.requestId) ?? str(message.id)
+    const key = this.requestOf(agent, r)
+    if (str(message.stop_reason) !== undefined) {
+      this.saysStops = true
+      this.stopped.add(key)
+    }
     if (u && request !== undefined) {
-      const key = this.requestOf(agent, r)
       this.usage.set(key, {
         kind: 'usage',
         at: this.usage.get(key)?.at ?? at,
@@ -306,12 +311,4 @@ export class TranscriptReader {
     const turn = `uuid:${str(r.uuid) ?? at}`
     this.facts.push({ kind: 'prompt', at, agent, line, turn }, { kind: 'reopened', at, agent, turn })
   }
-}
-
-/** Keeps every structural fact and the newest of the rest, up to IMPORT_FACTS in all. */
-const capped = (facts: NewFact[]): NewFact[] => {
-  if (facts.length <= IMPORT_FACTS) return facts
-  const kept = facts.filter(f => STRUCTURE.has(f.kind))
-  const rest = facts.filter(f => !STRUCTURE.has(f.kind)).sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
-  return [...kept, ...rest.slice(0, Math.max(0, IMPORT_FACTS - kept.length - 1)), { kind: 'truncated', agent: MAIN }]
 }

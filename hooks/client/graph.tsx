@@ -12,7 +12,7 @@ import { cameraMode, createLive, graphBounds, isRunning, stepPositions, syncLayo
 import { drawMinimap, minimapRect, needsMinimap } from './minimap'
 import { paint } from './paint'
 import { AMBER, AMBER_DIM, GREY, mix, STATUS_COLOR } from './palette'
-import { drawDetails, drawHelp, drawInfo, overlayRect } from './panels'
+import { drawDetails, drawHelp, drawInfo, KEYMAP, overlayRect } from './panels'
 import { regions, type Regions } from './regions'
 import { drawScene } from './scene'
 import { drawStatus } from './status-bar'
@@ -86,7 +86,7 @@ export const drawFrame = (live: Live, r: Regions, w: number, h: number): Grid =>
     live.detailScroll = Math.min(live.detailScroll, live.detailMax)
   }
   if (props.ui.overlay === 'info' && props.info) drawInfo(g, overlayRect(r.canvas, 52, 10), props.info)
-  if (props.ui.overlay === 'help') drawHelp(g, overlayRect(r.canvas, 52, 16))
+  if (props.ui.overlay === 'help') drawHelp(g, overlayRect(r.canvas, 52, KEYMAP.length + 2))
   if (r.panel.h > 0) drawPanel(g, r.panel, props.view.timeline, r.isCompact)
   const status = drawStatus(g, r.statusY, props.view, { camera: cameraMode(live), hint: live.hasKeys ? undefined : KEY_HINT, isDotLit: live.isDotLit })
   live.cameraBadge = status.camera
@@ -100,7 +100,7 @@ const tick = (surface: Parameters<ClientModule<Props, S>>[1]): void => {
   if (!s) return
   const live = s.live
   const batch = live.outbox.take()
-  if (batch) surface.post(batch)
+  if (batch) surface.post({ ...batch, renumbered: live.props.view.renumbered })
   const now = performance.now()
   const dt = Math.min(250, now - live.lastTick)
   live.lastTick = now

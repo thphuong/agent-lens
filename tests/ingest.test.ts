@@ -159,8 +159,60 @@ describe('fact log', () => {
     expect(log).toMatchObject({ liveSince: 5000, imported: false })
   })
 
+  test('after an adopt only the facts seen live are persisted, and a load restores no history', async () => {
+    const { store, port } = memoryPort()
+    const log = new FactLog()
+    await log.load(port, 's1', 0)
+    const history: NewFact[] = [{ kind: 'agent', agent: 'main', agentKind: 'main' }]
+    for (let i = 0; i < 1200; i++) history.push({ kind: 'toolStart', at: 100 + i, agent: 'main', call: `h${i}`, tool: 'Read' })
+    log.append(port, [
+      { kind: 'agent', agent: 'main', agentKind: 'main' },
+      { kind: 'toolStart', at: 50, agent: 'main', call: 'early', tool: 'Grep' },
+      { kind: 'toolStart', at: 5000, agent: 'main', call: 'live', tool: 'Bash' },
+    ])
+    log.adopt(port, history, 4000)
+    expect(log.facts.map(f => f.seq)).toEqual(log.facts.map((_, i) => i + 1))
+    // The undated fact and the one dated before the cutoff gave way to the history.
+    expect(log.facts.some(f => f.kind === 'toolStart' && f.call === 'early')).toBe(false)
+    expect(log.facts.at(-1)).toMatchObject({ call: 'live', seq: 1202 })
+    await log.flush(port)
+    expect(store.meta).toMatchObject({ chunks: 1, liveSince: 4000 })
+    expect(store.chunks.get(0)).toEqual([log.facts.at(-1)])
+    log.append(port, [{ kind: 'toolEnd', at: 5100, agent: 'main', call: 'live', outcome: 'ok' }])
+    await log.flush(port)
+    expect(store.chunks.get(0)?.map(f => f.seq)).toEqual([1202, 1203])
+    const again = new FactLog()
+    await again.load(port, 's1', 9000)
+    expect(again.facts).toEqual(log.facts.slice(-2))
+    // A history read again replaces the old one rather than adding to it.
+    log.adopt(port, history, 4000)
+    expect(log.facts).toHaveLength(1203)
+  })
+
+  test('a log kept with its import in its chunks loads that part as history and stops persisting it', async () => {
+    const { store, port } = memoryPort()
+    const facts: Fact[] = [
+      { kind: 'agent', agent: 'main', agentKind: 'main', seq: 1 },
+      ...Array.from({ length: 1200 }, (_, i): Fact => ({ kind: 'toolStart', at: 100 + i, agent: 'main', call: `h${i}`, tool: 'Read', seq: i + 2 })),
+      { kind: 'toolStart', at: 5000, agent: 'main', call: 'live', tool: 'Bash', seq: 1202 },
+    ]
+    for (let i = 0; i * 500 < facts.length; i++) store.chunks.set(i, facts.slice(i * 500, (i + 1) * 500))
+    store.meta = { sessionId: 's1', chunks: 3, seq: 1202, liveSince: 4000, imported: true }
+    const log = new FactLog()
+    await log.load(port, 's1', 9000)
+    expect(log.facts).toHaveLength(1202)
+    await log.flush(port)
+    expect(store.meta.chunks).toBe(1)
+    expect(store.chunks.get(0)?.map(f => f.seq)).toEqual([1, 1202])
+    // The chunks the history filled are emptied, so session state no longer holds it.
+    expect([store.chunks.get(1), store.chunks.get(2)]).toEqual([[], []])
+    const again = new FactLog()
+    await again.load(port, 's1', 9000)
+    expect(again.facts.map(f => f.seq)).toEqual([1, 1202])
+  })
+
   test('a log kept for another session is dropped, and reset empties it', async () => {
-    const { port } = memoryPort()
+    const { store, port } = memoryPort()
     const log = new FactLog()
     await log.load(port, 's1', 0)
     log.append(port, reference().facts)
@@ -168,6 +220,9 @@ describe('fact log', () => {
     const other = new FactLog()
     await other.load(port, 's2', 0)
     expect(other.facts).toEqual([])
+    // The other session's chunks are emptied, so they no longer take up session state.
+    await other.flush(port)
+    expect([...store.chunks.values()].every(c => c.length === 0)).toBe(true)
     log.reset(port, 's3', 0)
     await log.flush(port)
     const after = new FactLog()
