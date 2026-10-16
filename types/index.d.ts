@@ -22,7 +22,8 @@ export type FactBody =
   | { kind: 'agent'; agentKind: AgentKind }
   | { kind: 'spawn'; parent: string }
   | { kind: 'label'; text: string; type?: string }
-  | { kind: 'model'; model: string }
+  /** `turn` is absent at spawn and in logs older than it; such a fact is kept once per model. */
+  | { kind: 'model'; model: string; turn?: string }
   | { kind: 'prompt'; line: string; turn?: string }
   | { kind: 'toolStart'; call: string; tool: string }
   | { kind: 'toolEnd'; call: string; outcome: Outcome }

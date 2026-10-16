@@ -138,7 +138,7 @@ describe('transcript', () => {
     expect(ordered(log.facts).find(f => f.at !== undefined)).toMatchObject({ kind: 'prompt', line: 'map the fake repo' })
   })
 
-  test('each agent reports each of its models once', () => {
+  test('each agent reports a model when it changes, so switching back shows it again', () => {
     const b = new TranscriptBuilder()
     for (let i = 0; i < 5; i++) b.request('main', [])
     for (let i = 0; i < 3; i++) b.request('main', [], {}, 'model-b')
@@ -147,8 +147,9 @@ describe('transcript', () => {
     expect(models).toEqual([
       expect.objectContaining({ agent: 'main', model: 'model-a', at: T0 + 1000 }),
       expect.objectContaining({ agent: 'main', model: 'model-b' }),
+      expect.objectContaining({ agent: 'main', model: 'model-a' }),
     ])
-    expect(derived(readTranscript(b.files).facts).get('main')?.model).toBe('model-b')
+    expect(derived(readTranscript(b.files).facts).get('main')?.model).toBe('model-a')
   })
 
   test('malformed lines are skipped and counted, other record types passed over, never thrown', () => {

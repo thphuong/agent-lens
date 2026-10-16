@@ -108,7 +108,7 @@ export const usageStep = (e: Pick<TurnStepInput, 'turnId' | 'index' | 'agentId'>
 export const turnCompleted = (e: TurnCompleteInput, at: number): NewFact[] => {
   const agent = who(e.agentId)
   const facts: NewFact[] = []
-  if (e.usage) facts.push({ kind: 'model', at, agent, model: cellText(e.usage.model, LABEL_CELLS) })
+  if (e.usage) facts.push({ kind: 'model', at, agent, model: cellText(e.usage.model, LABEL_CELLS), turn: e.turnId })
   facts.push({ kind: 'ended', at, agent, status: END[e.reason], turn: e.turnId })
   return facts
 }

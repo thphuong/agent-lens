@@ -3,6 +3,7 @@ import type { SessionMessage } from 'claude-code'
 
 import { agentSpawned, backfill, HISTORY_ROWS, promptLine, promptSubmitted, toolEnded, toolStarted, turnCompleted, turnStarted, usageStep } from '../hooks/ingest'
 import type { Fact, NewFact } from '../hooks/model/facts'
+import { derive, foldAll } from '../hooks/model/fold'
 import { FactLog, type LogPort } from '../hooks/persist'
 import type { LogMeta } from '../types'
 import { cellText, cellWidth } from '../hooks/text'
@@ -121,6 +122,21 @@ describe('fact log', () => {
     expect(changed).toHaveLength(1)
     expect(log.facts).toEqual([{ kind: 'toolStart', at: 9, agent: 'main', call: 'c', tool: 'Read', seq: 1 }])
     expect(log.append(port, [{ kind: 'toolStart', agent: 'main', call: 'c', tool: 'Read' }])).toEqual([])
+  })
+
+  test('switching back to an earlier model shows it again, and replay before the switch shows the one between', () => {
+    const { port } = memoryPort()
+    const log = new FactLog()
+    // A fact kept before model facts carried their turn.
+    log.append(port, [{ kind: 'model', at: 1, agent: 'main', model: 'model-a' }])
+    const usage = (model: string) => ({ input_tokens: 1, output_tokens: 1, model })
+    for (const [turn, model] of [['t1', 'model-a'], ['t2', 'model-b'], ['t3', 'model-a']] as const) {
+      log.append(port, turnCompleted({ turnId: turn, reason: 'answer', usage: usage(model) } as never, 2))
+    }
+    const main = (upTo?: number) => derive(foldAll(log.facts, upTo)).find(d => d.id === 'main')?.model
+    expect(main()).toBe('model-a')
+    const switchBack = log.facts.findIndex(f => f.kind === 'model' && f.turn === 't3')
+    expect(main(switchBack)).toBe('model-b')
   })
 
   test('a reload restores the log with usage, parents and groups intact', async () => {

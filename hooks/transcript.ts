@@ -78,8 +78,8 @@ export class TranscriptReader {
   /** Agents a journal reports as ended, and whether they failed; dated in `result`. */
   private journaled = new Map<string, boolean>()
   private launched = new Set<string>()
-  /** Models already reported per agent: a model fact is pushed only on an agent's first use of it. */
-  private models = new Set<string>()
+  /** The model last reported per agent: a model fact is pushed only when it changes. */
+  private models = new Map<string, string>()
 
   constructor(private readonly cutoff: number) {}
 
@@ -236,10 +236,9 @@ export class TranscriptReader {
     const model = str(message.model)
     if (model !== undefined && !model.startsWith('<')) {
       const m = cellText(model, LABEL_CELLS)
-      const key = `${agent}\n${m}`
-      if (!this.models.has(key)) {
-        this.models.add(key)
-        this.facts.push({ kind: 'model', at, agent, model: m })
+      if (this.models.get(agent) !== m) {
+        this.models.set(agent, m)
+        this.facts.push({ kind: 'model', at, agent, model: m, turn: `uuid:${str(r.uuid) ?? at}` })
       }
     }
     // One request is written as several records; the last one's usage stands.
