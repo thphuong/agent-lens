@@ -1,6 +1,6 @@
 // Agent cards: a status-coloured rounded box holding the label, the status,
 // the current tool, the tokens consumed with the cache share, the context
-// size (not on workflow cards), and for main and workflow cards the model. Too small to read, a card becomes a solid status block.
+// size (not on workflow cards), and the model. Too small to read, a card becomes a solid status block.
 
 import type { ViewAgent } from '../../types'
 import type { Chip } from './chips'
@@ -52,7 +52,7 @@ export const drawCard = (g: Grid, a: ViewAgent, x: number, y: number, w: number,
   const share = cacheShare(a.cacheRead, a.inputAll)
   rows.push([fitting(share ? [`${tok} · ${share}`, tok] : [tok], inner), MUTED])
   if (a.kind !== 'group') rows.push([`${formatTokens(a.ctx)} ctx`, MUTED])
-  if (a.kind !== 'sub' && a.model) rows.push([a.model, MUTED])
+  if (a.model) rows.push([a.model, MUTED])
   for (let r = 0; r < rows.length && r < h - 2; r++) {
     const [s, color] = rows[r]!
     if (r === 2 && look.chips?.length) drawChips(g, x + 2, y + 1 + r, look.chips, inner)

@@ -141,15 +141,16 @@ const info = (m: SessionModel, agents: readonly DerivedAgent[], compress: boolea
   }
 }
 
-type Shed = { runsPerAgent: number; openRunsOnly: boolean; overview: number; spark: number; detailCalls: number; labelCells: number }
+type Shed = { runsPerAgent: number; openRunsOnly: boolean; overview: number; spark: number; detailCalls: number; labelCells: number; subModels: boolean }
 
 const LEVELS: Shed[] = [
-  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: false, overview: OVERVIEW_BUCKETS, spark: SPARK_BUCKETS, detailCalls: DETAIL_CALLS, labelCells: 40 },
-  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: true, overview: OVERVIEW_BUCKETS, spark: SPARK_BUCKETS, detailCalls: DETAIL_CALLS, labelCells: 40 },
-  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: true, overview: 0, spark: SPARK_BUCKETS, detailCalls: DETAIL_CALLS, labelCells: 40 },
-  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: true, overview: 0, spark: 80, detailCalls: DETAIL_CALLS, labelCells: 40 },
-  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: true, overview: 0, spark: 80, detailCalls: 20, labelCells: 40 },
-  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: true, overview: 0, spark: 80, detailCalls: 20, labelCells: 24 },
+  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: false, overview: OVERVIEW_BUCKETS, spark: SPARK_BUCKETS, detailCalls: DETAIL_CALLS, labelCells: 40, subModels: true },
+  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: true, overview: OVERVIEW_BUCKETS, spark: SPARK_BUCKETS, detailCalls: DETAIL_CALLS, labelCells: 40, subModels: true },
+  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: true, overview: 0, spark: SPARK_BUCKETS, detailCalls: DETAIL_CALLS, labelCells: 40, subModels: true },
+  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: true, overview: 0, spark: 80, detailCalls: DETAIL_CALLS, labelCells: 40, subModels: true },
+  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: true, overview: 0, spark: 80, detailCalls: 20, labelCells: 40, subModels: true },
+  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: true, overview: 0, spark: 80, detailCalls: 20, labelCells: 24, subModels: true },
+  { runsPerAgent: RUNS_PER_AGENT, openRunsOnly: true, overview: 0, spark: 80, detailCalls: 20, labelCells: 24, subModels: false },
 ]
 
 /** Runs settled long enough ago that their chips have faded need not travel. */
@@ -205,7 +206,7 @@ export const buildProps = (input: PropsInput): Props => {
       tok: d.tok,
       cacheRead: d.cacheRead,
       inputAll: d.inputAll,
-      model: d.kind === 'sub' ? undefined : d.model,
+      model: d.kind === 'sub' && !shed.subModels ? undefined : d.model,
       wave: d.wave || undefined,
       lastSeq: d.lastSeq,
     }))

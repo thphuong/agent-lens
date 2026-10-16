@@ -11,7 +11,7 @@ import type { AgentKind, Point, ViewAgent } from '../../types'
 export const CARD: Record<AgentKind, { w: number; h: number }> = {
   main: { w: 30, h: 8 },
   group: { w: 30, h: 7 },
-  sub: { w: 26, h: 7 },
+  sub: { w: 26, h: 8 },
 }
 export const SIBLING_GAP = 3
 export const LEVEL_GAP = 4

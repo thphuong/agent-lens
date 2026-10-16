@@ -67,7 +67,7 @@ test('an off-centre parent meets the bar from above', () => {
 
 test('a child dragged level with its parent stays connected, entered from below', () => {
   const agents = [agent('main', undefined, 'main'), agent('a', 'main')]
-  const pos = { main: { x: 0, y: 0 }, a: { x: 40, y: 1 } }
+  const pos = { main: { x: 0, y: 0 }, a: { x: 40, y: 0 } }
   const g = new Grid(80, 12)
   drawScene(g, agents, pos, { x: 0, y: 0, z: 1 })
   const rows = Array.from({ length: g.h }, (_, y) => rowText(g, y))
