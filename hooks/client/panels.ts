@@ -80,10 +80,14 @@ export const drawDetails = (g: Grid, rect: Rect, d: Details, scroll: number, now
   return maxScroll
 }
 
-export const drawInfo = (g: Grid, rect: Rect, info: Info): void => {
-  panel(g, rect, 'session')
+const INFO_WIDTH = 52
+
+/** The session overlay, centred in `area` and as tall as its rows. */
+export const drawInfo = (g: Grid, area: Rect, info: Info): void => {
+  // The width does not depend on the height, so the rows can be laid out first.
+  const { w } = overlayRect(area, INFO_WIDTH, 0)
   const rows: [string, string][] = [
-    ['model', info.model ? modelLine(info.model, info.effort, rect.w - 17) : '—'],
+    ['model', info.model ? modelLine(info.model, info.effort, w - 17) : '—'],
     ['agents', String(info.agents)],
     ['tool calls', String(info.tools)],
     ['edits', String(info.edits)],
@@ -93,6 +97,8 @@ export const drawInfo = (g: Grid, rect: Rect, info: Info): void => {
     ['pacing', info.compress ? 'compressed gaps' : 'faithful'],
     ['last prompt', info.lastPrompt ?? '—'],
   ]
+  const rect = overlayRect(area, INFO_WIDTH, rows.length + 2)
+  panel(g, rect, 'session')
   rows.forEach(([k, v], r) => {
     if (r >= rect.h - 2) return
     g.text(rect.x + 2, rect.y + 1 + r, k, MUTED, 12)

@@ -85,7 +85,7 @@ export const drawFrame = (live: Live, r: Regions, w: number, h: number): Grid =>
     live.detailMax = drawDetails(g, r.details, props.details, live.detailScroll)
     live.detailScroll = Math.min(live.detailScroll, live.detailMax)
   }
-  if (props.ui.overlay === 'info' && props.info) drawInfo(g, overlayRect(r.canvas, 52, 10), props.info)
+  if (props.ui.overlay === 'info' && props.info) drawInfo(g, r.canvas, props.info)
   if (props.ui.overlay === 'help') drawHelp(g, overlayRect(r.canvas, 52, KEYMAP.length + 2))
   if (r.panel.h > 0) drawPanel(g, r.panel, props.view.timeline, r.isCompact)
   const status = drawStatus(g, r.statusY, props.view, { camera: cameraMode(live), hint: live.hasKeys ? undefined : KEY_HINT, isDotLit: live.isDotLit })

@@ -4,7 +4,7 @@ import { formatTokens } from '../hooks/client/cards'
 import { chipsFor } from '../hooks/client/chips'
 import { Grid } from '../hooks/client/grid'
 import { needsMinimap } from '../hooks/client/minimap'
-import { detailLines } from '../hooks/client/panels'
+import { detailLines, drawInfo } from '../hooks/client/panels'
 import { regions } from '../hooks/client/regions'
 import { drawStatus } from '../hooks/client/status-bar'
 import { trackIndexAt, trackOf } from '../hooks/client/timeline-panel'
@@ -95,5 +95,22 @@ describe('mounted', () => {
     expect(await ui.find({ type: 'Text', text: /timeline/, in: 'graph' })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: /agents · /, in: 'graph' })).toBeDefined()
     await ui.unmount()
+  })
+})
+
+describe('session overlay', () => {
+  test('shows every row, the last prompt included, and shrinks to a short pane', () => {
+    const info = referenceProps({ ...EMPTY_UI, overlay: 'info' }).info!
+    const text = (h: number) => {
+      const g = new Grid(80, h)
+      drawInfo(g, { x: 0, y: 0, w: 80, h }, info)
+      return Array.from({ length: g.h }, (_, y) => g.ch.slice(y * g.w, (y + 1) * g.w).join(''))
+    }
+    const tall = text(30)
+    expect(tall.some(r => r.includes('last prompt'))).toBe(true)
+    expect(tall.some(r => r.includes('model'))).toBe(true)
+    const short = text(8)
+    expect(short.some(r => r.includes('model'))).toBe(true)
+    expect(short.some(r => r.includes('last prompt'))).toBe(false)
   })
 })
