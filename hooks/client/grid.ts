@@ -14,6 +14,8 @@ export type Pt = { x: number; y: number }
 export class Grid {
   readonly ch: string[]
   readonly fg: string[]
+  /** The cell's background, '' for the terminal's own. */
+  readonly bg: string[]
   readonly link: Uint8Array
   /** The edge that last laid a horizontal / vertical stroke in the cell, -1 for none. */
   readonly hEdge: Int32Array
@@ -28,6 +30,7 @@ export class Grid {
     const n = w * h
     this.ch = new Array<string>(n).fill(' ')
     this.fg = new Array<string>(n).fill('')
+    this.bg = new Array<string>(n).fill('')
     this.link = new Uint8Array(n)
     this.hEdge = new Int32Array(n).fill(-1)
     this.vEdge = new Int32Array(n).fill(-1)
@@ -42,7 +45,7 @@ export class Grid {
     return this.inside(x, y) ? this.link[y * this.w + x]! : 0
   }
 
-  /** Writes one cell. A wide glyph also claims the cell to its right, left empty so rows stay aligned. */
+  /** Writes one cell, clearing its background. A wide glyph also claims the cell to its right, left empty so rows stay aligned. */
   put(x: number, y: number, c: string, fg: string, wide = false): void {
     x = Math.round(x)
     y = Math.round(y)
@@ -57,12 +60,19 @@ export class Grid {
     }
     this.ch[i] = c
     this.fg[i] = fg
+    this.bg[i] = ''
     this.link[i] = 0
     if (wide) {
       this.ch[i + 1] = ''
       this.fg[i + 1] = fg
+      this.bg[i + 1] = ''
       this.link[i + 1] = 0
     }
+  }
+
+  /** Sets the background of a block of cells, keeping their glyphs. */
+  shade(x: number, y: number, w: number, h: number, bg: string): void {
+    for (let r = Math.max(0, y); r < Math.min(this.h, y + h); r++) for (let k = Math.max(0, x); k < Math.min(this.w, x + w); k++) this.bg[r * this.w + k] = bg
   }
 
   /** Writes a string from (x, y), counting terminal cells; stops after `maxCells` when given. Answers the cells used. */
@@ -140,6 +150,7 @@ export class Grid {
         if (tx < 0 || tx >= this.w) continue
         this.ch[ty * this.w + tx] = src.ch[y * src.w + x]!
         this.fg[ty * this.w + tx] = src.fg[y * src.w + x]!
+        this.bg[ty * this.w + tx] = src.bg[y * src.w + x]!
       }
     }
   }

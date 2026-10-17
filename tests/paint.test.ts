@@ -80,6 +80,25 @@ describe('paint', () => {
     expect(runs).toHaveLength(2)
   })
 
+  test('a shaded block keeps its glyphs and paints its background as its own runs', () => {
+    const g = new Grid(10, 1)
+    g.text(0, 0, 'ab', '#ff0000')
+    g.put(4, 0, '▪', '#00ff00')
+    g.shade(3, 0, 4, 1, '#3a3a3a')
+    const runs = paintRuns(g).rows[0]!.runs
+    expect(runs.map(r => r.text).join('')).toBe('ab ' + ' ▪  ' + '   ')
+    expect(runs.find(r => r.text.includes('▪'))).toEqual({ text: '▪  ', color: '#00ff00', bg: '#3a3a3a' })
+    expect(runs.filter(r => r.bg).map(r => r.text).join('')).toBe(' ▪  ')
+    expect(runs.at(-1)!.bg).toBeUndefined()
+  })
+
+  test('writing a cell clears its shade', () => {
+    const g = new Grid(4, 1)
+    g.shade(0, 0, 4, 1, '#3a3a3a')
+    g.fill(1, 0, 2, 1, ' ', '#ffffff')
+    expect(g.bg).toEqual(['#3a3a3a', '', '', '#3a3a3a'])
+  })
+
   test('wide labels keep the row as wide as the grid', () => {
     const g = new Grid(12, 1)
     g.text(1, 0, '漢字ab', '#ffffff')

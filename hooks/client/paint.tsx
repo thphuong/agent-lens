@@ -11,6 +11,8 @@ export const PAINT_BUDGET = 90_000
 /** What one run costs serialized beyond its text: the element and its colour prop. */
 const RUN_COST = 48
 const ROW_COST = 64
+/** What a background prop adds to a run beyond its colour's text. */
+const BG_COST = 20
 
 const BASE = ['#000000', '#ff5f5f', '#5fd75f', '#d7af00', '#5f87af', '#af5faf', '#5fafaf', '#d0d0d0', '#808080', '#ffffff']
 
@@ -31,32 +33,34 @@ const nearestBase = (hex: string): string => {
   return best
 }
 
-export type Row = { runs: { text: string; color: string }[] }
+export type Run = { text: string; color: string; bg?: string }
+export type Row = { runs: Run[] }
 
 const runsOf = (g: Grid, mapColor: (c: string) => string): { rows: Row[]; cost: number } => {
   const rows: Row[] = []
   let cost = 0
   for (let y = 0; y < g.h; y++) {
-    const runs: Row['runs'] = []
+    const runs: Run[] = []
     let text = ''
     let color = ''
+    let bg = ''
+    const flush = () => {
+      runs.push(bg ? { text, color, bg } : { text, color })
+      cost += RUN_COST + text.length + color.length + (bg ? BG_COST + bg.length : 0)
+      text = ''
+    }
     for (let x = 0; x < g.w; x++) {
       const i = y * g.w + x
       const ch = g.ch[i]!
-      // A blank cell takes the colour of the run it sits in.
-      const c = ch === ' ' || ch === '' ? color : mapColor(g.fg[i]!)
-      if (c !== color && text) {
-        runs.push({ text, color })
-        cost += RUN_COST + text.length + color.length
-        text = ''
-      }
+      const b = g.bg[i] ? mapColor(g.bg[i]!) : ''
+      // A blank cell takes the colour of the run it sits in, unless its background differs.
+      const c = (ch === ' ' || ch === '') && b === bg ? color : mapColor(g.fg[i]!)
+      if ((c !== color || b !== bg) && text) flush()
       color = c
+      bg = b
       text += ch
     }
-    if (text) {
-      runs.push({ text, color })
-      cost += RUN_COST + text.length + color.length
-    }
+    if (text) flush()
     rows.push({ runs })
     cost += ROW_COST
   }
@@ -81,7 +85,13 @@ export const paint = (elements: ClientElements, g: Grid): { tree: RenderElement;
   const built = paintRuns(g)
   const { Box, Text } = elements
   const rows = built.rows.map(r => (
-    <Text wrap="truncate-end">{r.runs.map(run => (run.color ? <Text color={run.color}>{run.text}</Text> : <Text>{run.text}</Text>))}</Text>
+    <Text wrap="truncate-end">
+      {r.runs.map(run => (
+        <Text {...(run.color ? { color: run.color } : {})} {...(run.bg ? { backgroundColor: run.bg } : {})}>
+          {run.text}
+        </Text>
+      ))}
+    </Text>
   ))
   return { tree: <Box flexDirection="column">{rows}</Box>, cost: built.cost, level: built.level }
 }

@@ -3,7 +3,8 @@ import { describe, expect, test } from 'claude-code/testing'
 import { formatTokens } from '../hooks/client/cards'
 import { chipsFor } from '../hooks/client/chips'
 import { Grid } from '../hooks/client/grid'
-import { needsMinimap } from '../hooks/client/minimap'
+import { drawMinimap, minimapRect, needsMinimap, VIEW_SHADE } from '../hooks/client/minimap'
+import { STATUS_COLOR } from '../hooks/client/palette'
 import { detailLines, drawInfo } from '../hooks/client/panels'
 import { regions } from '../hooks/client/regions'
 import { drawStatus } from '../hooks/client/status-bar'
@@ -54,6 +55,21 @@ describe('chips, minimap and details', () => {
   test('the minimap shows only when the graph overflows the view', () => {
     expect(needsMinimap({ x: 0, y: 0, w: 50, h: 20 }, { x: -1, y: -1, w: 60, h: 30 })).toBe(false)
     expect(needsMinimap({ x: 0, y: 0, w: 150, h: 20 }, { x: 0, y: 0, w: 60, h: 30 })).toBe(true)
+  })
+
+  test('the minimap shades the viewport under the card dots instead of outlining it', () => {
+    const g = new Grid(96, 32)
+    const box = minimapRect({ x: 0, y: 0, w: 96, h: 32 })
+    const cards = [
+      { rect: { x: 0, y: 0, w: 2, h: 2 }, color: STATUS_COLOR.failed },
+      { rect: { x: 140, y: 18, w: 2, h: 2 }, color: STATUS_COLOR.done },
+    ]
+    drawMinimap(g, box, { x: 0, y: 0, w: 150, h: 20 }, cards, { x: 0, y: 0, w: 60, h: 20 })
+    const at = (color: string) => g.fg.findIndex((c, i) => c === color && g.ch[i] === '▪')
+    expect(g.ch).not.toContain('·')
+    expect(g.bg[at(STATUS_COLOR.failed)]).toBe(VIEW_SHADE)
+    expect(g.bg[at(STATUS_COLOR.done)]).toBe('')
+    expect(g.bg[box.y * g.w + box.x]).toBe('')
   })
 
   test('details list calls under their prompt-era headers', () => {
