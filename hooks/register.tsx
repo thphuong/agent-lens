@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { Props, UiState } from '../types'
 import { FaultGate } from './fault-gate'
 import { FRAME_MS } from './frame'
-import { agentSpawned, backfill, promptSubmitted, toolEnded, toolStarted, turnCompleted, turnStarted, usageStep } from './ingest'
+import { agentSpawned, backfill, effortStep, promptSubmitted, toolEnded, toolStarted, turnCompleted, turnStarted, usageStep } from './ingest'
 import { applyIntents, parseIntents, wheelTick } from './intents'
 import { MAIN, type NewFact } from './model/facts'
 import { derive } from './model/fold'
@@ -271,10 +271,11 @@ export const register: Register = on => {
   // chunk through and returns the result unchanged.
   on('turn.step', async function* ($, e, next) {
     const r = yield* next(e)
-    if (r.usage) {
-      const usage = r.usage
-      ingest($, 'turn.step', () => usageStep(e, usage, Date.now()))
-    }
+    const usage = r.usage
+    ingest($, 'turn.step', () => {
+      const at = Date.now()
+      return usage ? [...effortStep(e, at), ...usageStep(e, usage, at)] : effortStep(e, at)
+    })
     return r
   })
 

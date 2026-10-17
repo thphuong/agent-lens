@@ -104,6 +104,17 @@ export const usageStep = (e: Pick<TurnStepInput, 'turnId' | 'index' | 'agentId'>
   },
 ]
 
+/** The effort a step asks for, kept once per turn; absent when its model takes none. */
+export const effortStep = (e: Pick<TurnStepInput, 'turnId' | 'agentId' | 'effort'>, at: number): NewFact[] => [
+  {
+    kind: 'effort',
+    at,
+    agent: who(e.agentId),
+    turn: e.turnId,
+    ...(e.effort === undefined ? {} : { effort: cellText(String(e.effort), LABEL_CELLS) }),
+  },
+]
+
 /** A turn ending. Its usage is the sum of its steps', which `usageStep` already counted, so only its model is kept. */
 export const turnCompleted = (e: TurnCompleteInput, at: number): NewFact[] => {
   const agent = who(e.agentId)

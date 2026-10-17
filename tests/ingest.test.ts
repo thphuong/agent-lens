@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { SessionMessage } from 'claude-code'
 
-import { agentSpawned, backfill, HISTORY_ROWS, promptLine, promptSubmitted, toolEnded, toolStarted, turnCompleted, turnStarted, usageStep } from '../hooks/ingest'
+import { agentSpawned, backfill, effortStep, HISTORY_ROWS, promptLine, promptSubmitted, toolEnded, toolStarted, turnCompleted, turnStarted, usageStep } from '../hooks/ingest'
 import type { Fact, NewFact } from '../hooks/model/facts'
 import { derive, foldAll } from '../hooks/model/fold'
 import { FactLog, type LogPort } from '../hooks/persist'
@@ -86,6 +86,12 @@ describe('translators', () => {
     ])
   })
 
+  test('a step gives its turn\'s effort, a budget as its number, none for a model without effort', () => {
+    expect(effortStep({ turnId: 't', agentId: 'a', effort: 'high' }, 5)).toEqual([{ kind: 'effort', at: 5, agent: 'a', turn: 't', effort: 'high' }])
+    expect(effortStep({ turnId: 't', effort: 8192 }, 5)[0]).toMatchObject({ agent: 'main', effort: '8192' })
+    expect(effortStep({ turnId: 't' }, 5)).toEqual([{ kind: 'effort', at: 5, agent: 'main', turn: 't' }])
+  })
+
   test('prompts keep a sanitised first line, commands their name only', () => {
     expect(promptSubmitted({ text: 'hidden', isMeta: true }, 1)).toEqual([])
     expect(promptSubmitted({ text: '/deploy prod --force', command: { name: 'deploy', args: 'prod --force' } }, 1)[0]).toMatchObject({ line: '/deploy' })
@@ -96,7 +102,7 @@ describe('translators', () => {
   })
 
   test('the reference session holds only allowlisted fields', () => {
-    const allowed = new Set(['kind', 'at', 'agent', 'agentKind', 'parent', 'text', 'type', 'model', 'line', 'turn', 'call', 'tool', 'outcome', 'status', 'key', 'input', 'output', 'cacheRead', 'cacheWrite'])
+    const allowed = new Set(['kind', 'at', 'agent', 'agentKind', 'parent', 'text', 'type', 'model', 'effort', 'line', 'turn', 'call', 'tool', 'outcome', 'status', 'key', 'input', 'output', 'cacheRead', 'cacheWrite'])
     for (const f of reference().facts) for (const k of Object.keys(f)) expect(allowed.has(k)).toBe(true)
   })
 })
@@ -137,6 +143,19 @@ describe('fact log', () => {
     expect(main()).toBe('model-a')
     const switchBack = log.facts.findIndex(f => f.kind === 'model' && f.turn === 't3')
     expect(main(switchBack)).toBe('model-b')
+  })
+
+  test('each turn shows its own effort, and a model without effort shows none', () => {
+    const { port } = memoryPort()
+    const log = new FactLog()
+    for (const [turn, effort] of [['t1', 'medium'], ['t2', 'high'], ['t3', undefined]] as const) {
+      // Every step reports the effort; the log keeps the turn's first.
+      log.append(port, [...effortStep({ turnId: turn, effort }, 1), ...effortStep({ turnId: turn, effort: 'low' }, 2)])
+    }
+    expect(log.facts.filter(f => f.kind === 'effort')).toHaveLength(3)
+    const main = (upTo?: number) => derive(foldAll(log.facts, upTo)).find(d => d.id === 'main')?.effort
+    expect(main()).toBeUndefined()
+    expect(main(2)).toBe('high')
   })
 
   test('a reload restores the log with usage, parents and groups intact', async () => {

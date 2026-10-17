@@ -1,7 +1,7 @@
 // The details panel, the info overlay and the help overlay.
 
 import type { Details, Info } from '../../types'
-import { cacheShare, formatTokens } from './cards'
+import { cacheShare, formatTokens, modelLine } from './cards'
 import type { Grid } from './grid'
 import type { Rect } from './layout'
 import { AMBER, ERR, FRAME, GREY, MUTED, OK, STATUS_COLOR, STATUS_GLYPH, TEXT } from './palette'
@@ -38,7 +38,7 @@ export const detailLines = (d: Details, now = Date.now()): Line[] => {
     { text: d.label, color: TEXT },
     { text: `${STATUS_GLYPH[d.status]} ${d.status} · ${d.type}`, color: STATUS_COLOR[d.status] },
   ]
-  if (d.model) lines.push({ text: d.model, color: MUTED })
+  if (d.model) lines.push({ text: modelLine(d.model, d.effort, Infinity), color: MUTED })
   if (d.prompt) lines.push({ text: `“${d.prompt}”`, color: GREY[3] })
   const span = d.start !== undefined && d.end !== undefined ? `  ${duration(d.end - d.start)}` : ''
   const share = cacheShare(d.cacheRead, d.inputAll)
@@ -83,7 +83,7 @@ export const drawDetails = (g: Grid, rect: Rect, d: Details, scroll: number, now
 export const drawInfo = (g: Grid, rect: Rect, info: Info): void => {
   panel(g, rect, 'session')
   const rows: [string, string][] = [
-    ['model', info.model ?? '—'],
+    ['model', info.model ? modelLine(info.model, info.effort, rect.w - 17) : '—'],
     ['agents', String(info.agents)],
     ['tool calls', String(info.tools)],
     ['edits', String(info.edits)],

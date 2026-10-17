@@ -27,6 +27,8 @@ export const dedupeKey = (f: NewFact): string | undefined => {
       return `label:${f.agent}`
     case 'model':
       return f.turn === undefined ? `model:${f.agent}:${f.model}` : `model:${f.agent}:turn:${f.turn}`
+    case 'effort':
+      return `effort:${f.agent}:${f.turn ?? ''}`
     case 'prompt':
       return f.turn === undefined ? undefined : `prompt:${f.turn}`
     case 'toolStart':

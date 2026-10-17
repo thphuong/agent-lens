@@ -80,6 +80,8 @@ export class TranscriptReader {
   private launched = new Set<string>()
   /** The model last reported per agent: a model fact is pushed only when it changes. */
   private models = new Map<string, string>()
+  /** The effort last reported per agent, undefined for none: a fact is pushed only when it changes. */
+  private efforts = new Map<string, string | undefined>()
 
   constructor(private readonly cutoff: number) {}
 
@@ -239,6 +241,12 @@ export class TranscriptReader {
       if (this.models.get(agent) !== m) {
         this.models.set(agent, m)
         this.facts.push({ kind: 'model', at, agent, model: m, turn: `uuid:${str(r.uuid) ?? at}` })
+      }
+      const level = str(r.effort)
+      const effort = level === undefined ? undefined : cellText(level, LABEL_CELLS)
+      if (this.efforts.get(agent) !== effort) {
+        this.efforts.set(agent, effort)
+        this.facts.push({ kind: 'effort', at, agent, turn: `uuid:${str(r.uuid) ?? at}`, ...(effort === undefined ? {} : { effort }) })
       }
     }
     // One request is written as several records; the last one's usage stands.

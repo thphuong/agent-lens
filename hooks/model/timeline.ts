@@ -27,8 +27,8 @@ export type Transport = 'live' | 'playing' | 'paused' | 'history' | 'idle'
 export type Markers = { spawns: number[]; fails: number[]; gaps: number[]; prompts: number[] }
 
 /**
- * Whether the timeline narrates a fact at the playhead. Usage, model, label
- * and status facts change nothing the narration shows, so stepping skips them.
+ * Whether the timeline narrates a fact at the playhead. Usage, model, effort,
+ * label and status facts change nothing the narration shows, so stepping skips them.
  */
 export const narrates = (f: Fact): boolean =>
   f.kind === 'prompt' || f.kind === 'spawn' || f.kind === 'toolStart' || f.kind === 'toolEnd' || f.kind === 'ended' || f.kind === 'reopened'

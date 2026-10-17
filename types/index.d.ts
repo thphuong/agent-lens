@@ -24,6 +24,8 @@ export type FactBody =
   | { kind: 'label'; text: string; type?: string }
   /** `turn` is absent at spawn and in logs older than it; such a fact is kept once per model. */
   | { kind: 'model'; model: string; turn?: string }
+  /** The reasoning effort a turn ran at; absent `effort` when its model takes none. */
+  | { kind: 'effort'; effort?: string; turn?: string }
   | { kind: 'prompt'; line: string; turn?: string }
   | { kind: 'toolStart'; call: string; tool: string }
   | { kind: 'toolEnd'; call: string; outcome: Outcome }
@@ -112,6 +114,7 @@ export type ViewAgent = {
   cacheRead: number
   inputAll: number
   model?: string
+  effort?: string
   /**
    * Which batch of siblings that ran at the same time the agent belongs to,
    * counted under its parent in arrival order; absent for the first batch.
@@ -177,6 +180,7 @@ export type Details = {
   agent: string
   label: string
   model?: string
+  effort?: string
   type: string
   status: DisplayStatus
   /** The agent's opening prompt, sanitised, first line only. */
@@ -195,6 +199,7 @@ export type Details = {
 
 export type Info = {
   model?: string
+  effort?: string
   agents: number
   tools: number
   /** Write, Edit and NotebookEdit calls. */

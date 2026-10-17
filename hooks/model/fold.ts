@@ -18,6 +18,8 @@ export type AgentState = {
   parent?: Stamped<string>
   label?: Stamped<{ text: string; type?: string }>
   model?: Stamped<string>
+  /** Undefined in the stamp when the latest turn's model takes no effort. */
+  effort?: Stamped<string | undefined>
   firstSeq: number
   lastSeq: number
   /** The newest lifecycle fact: `spawn`, `reopened`, `ended` or `status`. */
@@ -109,6 +111,9 @@ export const apply = (m: SessionModel, f: Fact): void => {
     case 'model':
       a.model = newer(a.model, f.seq, f.model)
       break
+    case 'effort':
+      a.effort = newer(a.effort, f.seq, f.effort)
+      break
     case 'prompt':
       m.prompts.set(f.seq, { seq: f.seq, at: f.at, line: f.line })
       break
@@ -193,6 +198,7 @@ export type DerivedAgent = {
   label: string
   type: string
   model?: string
+  effort?: string
   status: DisplayStatus
   /** The tool of the newest call still in flight. */
   tool?: string
@@ -296,6 +302,7 @@ export const derive = (m: SessionModel): DerivedAgent[] => {
       label: a.label?.value.text ?? (a.id === MAIN ? 'main' : a.kind === 'group' ? 'workflow' : 'agent'),
       type: a.label?.value.type ?? (a.kind === 'group' ? 'workflow' : a.kind === 'main' ? 'main' : 'agent'),
       model: a.model?.value,
+      effort: a.effort?.value,
       status,
       tool: n?.open?.tool,
       tools: n?.tools ?? 0,

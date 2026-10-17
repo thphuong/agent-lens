@@ -1,9 +1,9 @@
 // A seeded synthetic session: engine events with fake ids and tool names only,
 // run through the real translators. Never captured from a real session.
 
-import type { AgentSpawnInput, AgentSpawnResult, ToolCallResult, TurnCompleteInput } from 'claude-code'
+import type { AgentSpawnInput, AgentSpawnResult, ToolCallResult, TurnCompleteInput, TurnStepInput } from 'claude-code'
 
-import { agentSpawned, promptSubmitted, toolEnded, toolStarted, turnCompleted, turnStarted, usageStep } from '../../hooks/ingest'
+import { agentSpawned, effortStep, promptSubmitted, toolEnded, toolStarted, turnCompleted, turnStarted, usageStep } from '../../hooks/ingest'
 import { MAIN, type Fact, type NewFact } from '../../hooks/model/facts'
 
 /** A small deterministic PRNG (mulberry32). */
@@ -97,9 +97,11 @@ export class Session {
     this.facts.push(...turnStarted({ text: '', turnId: this.id('turn'), agentId }, this.tick()))
   }
 
-  /** One model call's usage, as `turn.step` reports it. */
-  step(agentId: string | undefined, turnId: string, index: number, usage: Partial<typeof USAGE> = {}) {
-    this.facts.push(...usageStep({ turnId, index, agentId }, { ...USAGE, ...usage }, this.tick()))
+  /** One model call's usage, as `turn.step` reports it, and on a turn's first call its effort, as the log keeps it. */
+  step(agentId: string | undefined, turnId: string, index: number, usage: Partial<typeof USAGE> = {}, effort: TurnStepInput['effort'] = 'medium') {
+    const at = this.tick()
+    if (index === 0) this.facts.push(...effortStep({ turnId, agentId, effort }, at))
+    this.facts.push(...usageStep({ turnId, index, agentId }, { ...USAGE, ...usage }, at))
   }
 
   /** Ends a turn of one model call. */

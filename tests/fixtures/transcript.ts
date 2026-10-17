@@ -67,7 +67,7 @@ export class TranscriptBuilder {
    * answer, then the tool calls. The last record says why the model stopped,
    * unless `streaming`: then the request is still being written.
    */
-  request(agent: string, calls: { id: string; tool: string; input?: Record<string, unknown> }[], usage: Usage = {}, model = 'model-a', streaming = false) {
+  request(agent: string, calls: { id: string; tool: string; input?: Record<string, unknown> }[], usage: Usage = {}, model = 'model-a', streaming = false, effort?: string) {
     const requestId = this.next('req-')
     const u = {
       input_tokens: usage.input ?? 100,
@@ -82,6 +82,7 @@ export class TranscriptBuilder {
     const message = (content: unknown[], last: boolean) => ({
       type: 'assistant',
       requestId,
+      ...(effort === undefined ? {} : { effort }),
       message: { id: `msg-${requestId}`, model, role: 'assistant', content, usage: u, stop_reason: last ? stop : null },
     })
     this.record(agent, message([{ type: 'text', text: 'SECRET-ANSWER' }], calls.length === 0))

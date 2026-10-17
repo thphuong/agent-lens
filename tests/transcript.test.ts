@@ -152,6 +152,24 @@ describe('transcript', () => {
     expect(derived(readTranscript(b.files).facts).get('main')?.model).toBe('model-a')
   })
 
+  test('each agent reports its effort when it changes, and none once a model takes none', () => {
+    const b = new TranscriptBuilder()
+    b.request('main', [], {}, 'model-a', false, 'medium')
+    b.request('main', [], {}, 'model-a', false, 'medium')
+    b.request('main', [], {}, 'model-a', false, 'high')
+    b.subagent('a1', { agentType: 'fake' })
+    b.request('a1', [], {}, 'model-a', false, 'low')
+    const facts = readTranscript(b.files).facts
+    expect(facts.filter(f => f.kind === 'effort').map(f => [f.agent, (f as { effort?: string }).effort])).toEqual([
+      ['main', 'medium'],
+      ['main', 'high'],
+      ['a1', 'low'],
+    ])
+    expect(derived(facts).get('main')?.effort).toBe('high')
+    b.request('main', [], {}, 'model-b')
+    expect(derived(readTranscript(b.files).facts).get('main')?.effort).toBeUndefined()
+  })
+
   test('malformed lines are skipped and counted, other record types passed over, never thrown', () => {
     const b = referenceTranscript()
     b.raw('main', 'not json')

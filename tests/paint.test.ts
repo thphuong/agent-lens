@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { drawCard } from '../hooks/client/cards'
+import { drawCard, modelLine } from '../hooks/client/cards'
 import { Grid } from '../hooks/client/grid'
 import { CARD } from '../hooks/client/layout'
 import { paintRuns } from '../hooks/client/paint'
@@ -40,6 +40,12 @@ describe('cards', () => {
     expect(rows[4]).toContain('1.2M tok · 87%')
     expect(rows[5]).toContain('42.1k ctx')
     expect(rows.join('\n')).not.toContain('×')
+  })
+
+  test('the model shows its effort, dropping the claude- prefix before the effort', () => {
+    expect(modelLine('claude-opus-5-5', 'medium', 26)).toBe('claude-opus-5-5 · medium')
+    expect(modelLine('claude-opus-5-5', 'medium', 22)).toBe('opus-5-5 · medium')
+    expect(modelLine('claude-opus-5-5', undefined, 22)).toBe('claude-opus-5-5')
   })
 
   test('a narrow card drops the cache share first', () => {

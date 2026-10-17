@@ -40,11 +40,12 @@ describe('size budget', () => {
     expect(buildProps({ timeline: t, ui: EMPTY_UI, now: 0, prompts: new Map(), renumbered: 2 }).view.renumbered).toBe(2)
   })
 
-  test('subagents carry their model when no shedding is needed', () => {
+  test('subagents carry their model and effort when no shedding is needed', () => {
     const small = buildProps({ timeline: timelineOf(reference()), ui: EMPTY_UI, now: 0, prompts: new Map() })
     const subs = small.view.agents.filter(a => a.kind === 'sub')
     expect(subs.length).toBeGreaterThan(0)
     expect(subs.every(a => a.model !== undefined)).toBe(true)
+    expect(subs.filter(a => a.effort === 'medium').length).toBeGreaterThan(0)
   })
 
   test('a small session needs no shedding', () => {

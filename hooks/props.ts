@@ -105,6 +105,7 @@ const details = (m: SessionModel, agent: DerivedAgent, prompts: ReadonlyMap<stri
     agent: agent.id,
     label: agent.label,
     model: agent.model,
+    effort: agent.effort,
     type: agent.type,
     status: agent.status,
     prompt: prompts.get(agent.id),
@@ -129,6 +130,7 @@ const info = (m: SessionModel, agents: readonly DerivedAgent[], compress: boolea
   const own = agents.filter(a => a.kind !== 'group')
   return {
     model: main?.model,
+    effort: main?.effort,
     agents: agents.filter(a => a.kind === 'sub').length,
     tools: own.reduce((s, a) => s + a.tools, 0),
     edits,
@@ -207,6 +209,7 @@ export const buildProps = (input: PropsInput): Props => {
       cacheRead: d.cacheRead,
       inputAll: d.inputAll,
       model: d.kind === 'sub' && !shed.subModels ? undefined : d.model,
+      effort: d.kind === 'sub' && !shed.subModels ? undefined : d.effort,
       wave: d.wave || undefined,
       lastSeq: d.lastSeq,
     }))
