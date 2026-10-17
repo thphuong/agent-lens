@@ -61,8 +61,8 @@ describe('chips, minimap and details', () => {
     const g = new Grid(96, 32)
     const box = minimapRect({ x: 0, y: 0, w: 96, h: 32 })
     const cards = [
-      { rect: { x: 0, y: 0, w: 2, h: 2 }, color: STATUS_COLOR.failed },
-      { rect: { x: 140, y: 18, w: 2, h: 2 }, color: STATUS_COLOR.done },
+      { rect: { x: 0, y: 0, w: 2, h: 2 }, status: 'failed' as const },
+      { rect: { x: 140, y: 18, w: 2, h: 2 }, status: 'done' as const },
     ]
     drawMinimap(g, box, { x: 0, y: 0, w: 150, h: 20 }, cards, { x: 0, y: 0, w: 60, h: 20 })
     const at = (color: string) => g.fg.findIndex((c, i) => c === color && g.ch[i] === '▪')
@@ -70,6 +70,21 @@ describe('chips, minimap and details', () => {
     expect(g.bg[at(STATUS_COLOR.failed)]).toBe(VIEW_SHADE)
     expect(g.bg[at(STATUS_COLOR.done)]).toBe('')
     expect(g.bg[box.y * g.w + box.x]).toBe('')
+  })
+
+  test('cards sharing a minimap cell show the most urgent status', () => {
+    const order = ['failed', 'running', 'idle', 'done', 'stopped'] as const
+    for (let k = 0; k < order.length; k++) {
+      const g = new Grid(96, 32)
+      // Listed least urgent first and most urgent first, so draw order cannot decide it.
+      const statuses = order.slice(k)
+      for (const list of [statuses, [...statuses].reverse()]) {
+        const cards = list.map(status => ({ rect: { x: 0, y: 0, w: 2, h: 2 }, status }))
+        drawMinimap(g, minimapRect({ x: 0, y: 0, w: 96, h: 32 }), { x: 0, y: 0, w: 150, h: 20 }, cards, { x: 0, y: 0, w: 60, h: 20 })
+        const dots = g.fg.filter((_, i) => g.ch[i] === '▪')
+        expect(dots).toEqual([STATUS_COLOR[order[k]!]])
+      }
+    }
   })
 
   test('details list calls under their prompt-era headers', () => {

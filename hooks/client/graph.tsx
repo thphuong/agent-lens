@@ -11,7 +11,7 @@ import { rectOf, type Rect } from './layout'
 import { cameraMode, createLive, graphBounds, isRunning, stepPositions, syncLayout, type Live } from './live'
 import { drawMinimap, minimapRect, needsMinimap } from './minimap'
 import { paint } from './paint'
-import { AMBER, AMBER_DIM, GREY, mix, STATUS_COLOR } from './palette'
+import { AMBER, AMBER_DIM, GREY, mix } from './palette'
 import { drawDetails, drawHelp, drawInfo, KEYMAP, overlayRect } from './panels'
 import { regions, type Regions } from './regions'
 import { drawScene } from './scene'
@@ -75,7 +75,7 @@ export const drawFrame = (live: Live, r: Regions, w: number, h: number): Grid =>
   if (graph && needsMinimap(graph, view)) {
     const cards = agents.flatMap(a => {
       const rect = rectOf(a, positions)
-      return rect ? [{ rect, color: STATUS_COLOR[a.status] }] : []
+      return rect ? [{ rect, status: a.status }] : []
     })
     drawMinimap(canvas, minimapRect({ x: 0, y: 0, w: canvas.w, h: canvas.h }), graph, cards, view)
   }

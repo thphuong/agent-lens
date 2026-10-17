@@ -1,9 +1,11 @@
 // A corner minimap of the whole graph with the viewport shaded, shown only
 // when the graph does not fit the view.
 
+import type { DisplayStatus } from '../../types'
+
 import type { Grid } from './grid'
 import type { Rect } from './layout'
-import { FRAME, GREY, TEXT } from './palette'
+import { FRAME, GREY, STATUS_COLOR, TEXT } from './palette'
 
 /** The viewport's background in the minimap. */
 export const VIEW_SHADE = GREY[0]
@@ -19,8 +21,11 @@ export const minimapRect = (canvas: Rect): Rect => {
 export const needsMinimap = (graph: Rect, view: Rect): boolean =>
   graph.x < view.x || graph.y < view.y || graph.x + graph.w > view.x + view.w || graph.y + graph.h > view.y + view.h
 
+/** How much a status needs seeing, lowest first: where cards share a cell, the last drawn shows. */
+const URGENCY: Record<DisplayStatus, number> = { stopped: 0, done: 1, idle: 2, running: 3, failed: 4 }
+
 /** Draws cards as blocks scaled into `box`, over a shaded block for the viewport. */
-export const drawMinimap = (g: Grid, box: Rect, graph: Rect, cards: readonly { rect: Rect; color: string }[], view: Rect): void => {
+export const drawMinimap = (g: Grid, box: Rect, graph: Rect, cards: readonly { rect: Rect; status: DisplayStatus }[], view: Rect): void => {
   if (box.w < 6 || box.h < 4) return
   g.fill(box.x, box.y, box.w, box.h, ' ', TEXT)
   g.box(box.x, box.y, box.w, box.h, FRAME)
@@ -33,7 +38,8 @@ export const drawMinimap = (g: Grid, box: Rect, graph: Rect, cards: readonly { r
   }
   const sx = (x: number) => inner.x + Math.floor(((x - world.x) / Math.max(1, world.w)) * inner.w)
   const sy = (y: number) => inner.y + Math.floor(((y - world.y) / Math.max(1, world.h)) * inner.h)
-  for (const c of cards) g.put(Math.min(inner.x + inner.w - 1, sx(c.rect.x + c.rect.w / 2)), Math.min(inner.y + inner.h - 1, sy(c.rect.y + c.rect.h / 2)), '▪', c.color)
+  const byUrgency = [...cards].sort((a, b) => URGENCY[a.status] - URGENCY[b.status])
+  for (const c of byUrgency) g.put(Math.min(inner.x + inner.w - 1, sx(c.rect.x + c.rect.w / 2)), Math.min(inner.y + inner.h - 1, sy(c.rect.y + c.rect.h / 2)), '▪', STATUS_COLOR[c.status])
   // The viewport is a shaded block under the dots, so no card is hidden by it.
   const x0 = sx(view.x)
   const y0 = sy(view.y)
