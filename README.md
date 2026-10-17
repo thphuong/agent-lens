@@ -45,6 +45,21 @@ you scrub back through the session or replay it.
 The capture above is drawn from the synthetic session in the test
 fixtures, zoomed out to fit.
 
+## Install
+
+The repository is its own plugin marketplace. Inside Claude Code:
+
+```text
+/plugin marketplace add thphuong/agent-lens
+/plugin install agent-lens@agent-lens
+```
+
+Or from a shell:
+
+```sh
+claude plugin install agent-lens --marketplace thphuong/agent-lens
+```
+
 ## Install for development
 
 ```sh

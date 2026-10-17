@@ -1,0 +1,14 @@
+{
+  "name": "agent-lens",
+  "description": "The agent-lens Claude Code mod",
+  "owner": {
+    "name": "Truong Hoang Phuong"
+  },
+  "plugins": [
+    {
+      "name": "agent-lens",
+      "source": "./",
+      "description": "Draws the current session's agents and tool calls as a live, animated, scrubbable graph in a docked pane"
+    }
+  ]
+}
