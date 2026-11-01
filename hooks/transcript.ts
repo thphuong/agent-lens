@@ -63,9 +63,14 @@ export class TranscriptReader {
    * Requests with a record that says why the model stopped, written once it
    * finished. One still streaming when the cutoff passed has none yet: the
    * live hooks count it. Transcripts that never say are read as finished.
+   * Many requests, most in subagent files, finish without saying so: only an
+   * agent's newest request can still be streaming, and only while the agent
+   * has not ended.
    */
   private stopped = new Set<string>()
   private saysStops = false
+  /** Each agent's newest request before the cutoff: the only one that can still be streaming. */
+  private newest = new Map<string, string>()
   private files = new Map<string, FileInfo>()
   private metas = new Map<string, AgentMeta>()
   /** Workflow agents by id, with their run. */
@@ -126,17 +131,20 @@ export class TranscriptReader {
 
   /** The facts, with subagents parented and dated, and how much was skipped. */
   result(): TranscriptResult {
-    const usage = [...this.usage].flatMap(([key, f]) => (this.late.has(key) || (this.saysStops && !this.stopped.has(key)) ? [] : [f]))
-    const out: NewFact[] = [{ kind: 'agent', agent: MAIN, agentKind: 'main' }, ...this.facts, ...usage]
     // An agent named only by its launch still shows: its files may have been cleaned up.
     const ids = new Set([...this.files.keys(), ...this.metas.keys(), ...this.journaled.keys(), ...this.launches.keys()])
     ids.delete(MAIN)
     const shown = new Set<string>()
-    for (const id of ids) {
+    // Spawns are read first: they date the ends that tell a finished agent's newest request.
+    const spawns = [...ids].flatMap(id => {
       const facts = this.spawned(id)
       if (facts.length > 0) shown.add(id)
-      out.push(...facts)
-    }
+      return facts
+    })
+    const streaming = (key: string, agent: string) =>
+      this.saysStops && !this.stopped.has(key) && this.newest.get(agent) === key && !((this.ends.get(agent)?.at ?? this.cutoff) < this.cutoff)
+    const usage = [...this.usage].flatMap(([key, f]) => (this.late.has(key) || streaming(key, f.agent) ? [] : [f]))
+    const out: NewFact[] = [{ kind: 'agent', agent: MAIN, agentKind: 'main' }, ...this.facts, ...usage, ...spawns]
     for (const [id, e] of this.ends) {
       if (e.at >= this.cutoff || !shown.has(id)) continue
       out.push({ kind: 'ended', at: e.at, agent: id, status: e.status, turn: ENDED })
@@ -253,6 +261,7 @@ export class TranscriptReader {
     const u = obj(message.usage)
     const request = str(r.requestId) ?? str(message.id)
     const key = this.requestOf(agent, r)
+    this.newest.set(agent, key)
     if (str(message.stop_reason) !== undefined) {
       this.saysStops = true
       this.stopped.add(key)

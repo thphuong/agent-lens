@@ -103,6 +103,24 @@ describe('transcript', () => {
     expect(usage).toEqual([expect.objectContaining({ key: 'req:req-1', input: 7 })])
   })
 
+  test('a request with no stop record is finished once a later request or the agent has ended', () => {
+    const b = new TranscriptBuilder()
+    // Main says why it stopped; the subagents' files do not, as many real ones do not.
+    b.request('main', [{ id: 'c1', tool: 'Agent' }, { id: 'c2', tool: 'Agent' }])
+    b.subagent('done', { agentType: 'fake', toolUseId: 'c1' })
+    b.request('done', [{ id: 'd1', tool: 'Read' }], { input: 1 }, 'model-a', true)
+    b.request('done', [], { input: 2 }, 'model-a', true)
+    b.result('main', 'c1', { toolUseResult: { agentId: 'done', status: 'completed' } })
+    b.subagent('busy', { agentType: 'fake', toolUseId: 'c2' })
+    b.request('busy', [{ id: 'b1', tool: 'Read' }], { input: 4 }, 'model-a', true)
+    b.request('busy', [], { input: 8 }, 'model-a', true)
+    const inputs = (agent: string) =>
+      readTranscript(b.files).facts.flatMap(f => (f.kind === 'usage' && f.agent === agent ? [f.input] : []))
+    expect(inputs('done')).toEqual([1, 2])
+    // Only a running agent's newest request may still be streaming.
+    expect(inputs('busy')).toEqual([4])
+  })
+
   test('a transcript that never says why the model stopped counts every request', () => {
     const b = new TranscriptBuilder()
     b.request('main', [{ id: 'c', tool: 'Read' }])

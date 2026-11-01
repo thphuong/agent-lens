@@ -38,7 +38,10 @@ These rules hold the design together. Break one and a known failure returns:
    counted twice, since live and imported facts for the same model call
    carry different dedupe keys and only the one time boundary keeps them
    apart. A request still being written at the cutoff, with no record yet
-   saying why the model stopped, is left to the live hooks. Each import renumbers the log in time order, history first,
+   saying why the model stopped, is left to the live hooks. Only an
+   agent's newest request can still be streaming, and only while the agent
+   has not ended: many finished requests, most in subagent files, are
+   written without a stop reason, so it does not mark the others. Each import renumbers the log in time order, history first,
    because the fold and the layout read seq as arrival order; the Client
    then treats everything shown as seen, and the layout follows from the
    new order. When the transcript cannot be found or read, backfill from
